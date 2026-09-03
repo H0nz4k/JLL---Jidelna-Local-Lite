@@ -16,6 +16,7 @@ from .orders.models import Diner, MealType, OrderAction, OrderServiceSettings
 from .orders.preflight import (
     assert_deadline,
     calculate_credit,
+    calculate_minimum_balance,
     deadline_fields,
     decimal_from_db,
 )
@@ -23,15 +24,22 @@ from .orders.repository import DAY_COLUMNS
 from .policy import Permission, SessionPolicy
 from .read_models import (
     ActionAvailability,
+    CategoryOrderSummary,
+    ChipIdentification,
+    DailyReport,
     DinerDay,
     DinerChip,
     DinerDetail,
+    DinerFinance,
+    DinerProfile,
     DinerReportRow,
     DinerSummary,
     LabDiagnostics,
     MealDay,
     MenuCapability,
     MenuOption,
+    NamedOrderRow,
+    NormMenuSummary,
     OrderReportRow,
     PickupStatusRow,
 )
@@ -44,6 +52,174 @@ NORMALIZED_NAME_SQL = sql.SQL(
     "translate(lower(regexp_replace(btrim(s.jmeno), '\\s+', ' ', 'g')), "
     "'áäčďéěëíňóöřšťúůüýž', 'aacdeeeinoorstuuuuyz')"
 )
+
+
+#: Bezpečný strop náhledu; sestava se v GUI needituje ani nestrankuje.
+_REPORT_ROW_LIMIT = 5000
+
+#: Souhrn objednaných menu pro den. `t.oznaceni` je číslo menu 1..9,
+#: `m.idtypstrj` je interní ID skupiny a číslem menu není.
+_ORDER_SUMMARY_SQL = """
+    WITH orders AS (
+      SELECT btrim(p.typsluzby) AS meal_type,
+             p.{day}::integer AS menu,
+             count(*)::integer AS portions
+      FROM public.prihlas AS p
+      JOIN public.stravnik AS s ON s.evidcislo = p.stravnik
+      WHERE p.rok = %s
+        AND p.mesic = %s
+        AND p.{day} ~ '^[1-9]$'
+        AND s.kategorie = ANY(%s::varchar[])
+        AND COALESCE(s.deleted, false) = false
+      GROUP BY btrim(p.typsluzby), p.{day}
+    ),
+    meals AS (
+      SELECT btrim(j.typstravy) AS meal_type,
+             t.oznaceni::integer AS menu,
+             string_agg(
+               NULLIF(btrim(j.nazev), ''),
+               ' • ' ORDER BY m.caststravy, j.idjidelnicku
+             ) AS meal_name
+      FROM public.jidelnicek AS j
+      JOIN public.menustravy AS m
+        ON m.id = j.idmenustravy AND m.typstravy = j.typstravy
+      JOIN public.typstrj AS t ON t.id = m.idtypstrj
+      WHERE j.datum = %s
+        AND lower(btrim(j.jazyk)) = lower('česky')
+        AND j.cislojidelnicku = 1
+        AND btrim(t.oznaceni) ~ '^[1-9]$'
+      GROUP BY btrim(j.typstravy), t.oznaceni
+    )
+    SELECT o.meal_type, o.menu, o.portions,
+           NULLIF(btrim(m.meal_name), '') AS meal_name
+    FROM orders AS o
+    LEFT JOIN meals AS m
+      ON lower(m.meal_type) = lower(o.meal_type)
+     AND m.menu = o.menu
+    ORDER BY o.meal_type, o.menu
+"""
+
+#: Přihlášky podle kategorií. Kategorie bez objednávky zůstává s nulou,
+#: aby souhrn odpovídal doložené referenční sestavě.
+_CATEGORY_SUMMARY_SQL = """
+    WITH selected AS (
+      SELECT btrim(item) AS category, position
+      FROM unnest(%s::varchar[]) WITH ORDINALITY AS u(item, position)
+    )
+    SELECT selected.category,
+           NULLIF(btrim(k.nazev), '') AS category_name,
+           NULLIF(upper(btrim(k.norma)), '') AS norm,
+           count(p.id)::integer AS orders
+    FROM selected
+    LEFT JOIN public.kategor AS k ON k.oznaceni = selected.category
+    LEFT JOIN public.stravnik AS s
+      ON s.kategorie = selected.category
+     AND COALESCE(s.deleted, false) = false
+    LEFT JOIN public.prihlas AS p
+      ON p.stravnik = s.evidcislo
+     AND p.rok = %s
+     AND p.mesic = %s
+     AND p.{day} ~ '^[1-9]$'
+    GROUP BY selected.position, selected.category, k.nazev, k.norma
+    ORDER BY selected.position
+"""
+
+#: Rozpad objednaných menu podle norem kategorií (`public.kategor.norma`).
+_NORM_SUMMARY_SQL = """
+    SELECT btrim(p.typsluzby) AS meal_type,
+           NULLIF(upper(btrim(k.norma)), '') AS norm,
+           p.{day}::integer AS menu,
+           count(*)::integer AS portions
+    FROM public.prihlas AS p
+    JOIN public.stravnik AS s ON s.evidcislo = p.stravnik
+    JOIN public.kategor AS k ON k.oznaceni = s.kategorie
+    WHERE p.rok = %s
+      AND p.mesic = %s
+      AND p.{day} ~ '^[1-9]$'
+      AND s.kategorie = ANY(%s::varchar[])
+      AND COALESCE(s.deleted, false) = false
+    GROUP BY btrim(p.typsluzby), k.norma, p.{day}
+    ORDER BY meal_type, norm NULLS LAST, menu
+"""
+
+#: Jmenný seznam objednávek. Každý typ stravy je samostatný řádek.
+_NAMED_LIST_SQL = """
+    WITH meals AS (
+      SELECT btrim(j.typstravy) AS meal_type,
+             t.oznaceni::integer AS menu,
+             string_agg(
+               NULLIF(btrim(j.nazev), ''),
+               ' • ' ORDER BY m.caststravy, j.idjidelnicku
+             ) AS meal_name
+      FROM public.jidelnicek AS j
+      JOIN public.menustravy AS m
+        ON m.id = j.idmenustravy AND m.typstravy = j.typstravy
+      JOIN public.typstrj AS t ON t.id = m.idtypstrj
+      WHERE j.datum = %s
+        AND lower(btrim(j.jazyk)) = lower('česky')
+        AND j.cislojidelnicku = 1
+        AND btrim(t.oznaceni) ~ '^[1-9]$'
+      GROUP BY btrim(j.typstravy), t.oznaceni
+    )
+    SELECT s.evidcislo,
+           NULLIF(btrim(s.jmeno), '') AS name,
+           btrim(s.kategorie) AS category,
+           NULLIF(btrim(k.nazev), '') AS category_name,
+           NULLIF(upper(btrim(k.norma)), '') AS norm,
+           btrim(p.typsluzby) AS meal_type,
+           p.{day}::integer AS menu,
+           NULLIF(btrim(m.meal_name), '') AS meal_name
+    FROM public.prihlas AS p
+    JOIN public.stravnik AS s ON s.evidcislo = p.stravnik
+    LEFT JOIN public.kategor AS k ON k.oznaceni = s.kategorie
+    LEFT JOIN meals AS m
+      ON lower(m.meal_type) = lower(btrim(p.typsluzby))
+     AND m.menu = p.{day}::integer
+    WHERE p.rok = %s
+      AND p.mesic = %s
+      AND p.{day} ~ '^[1-9]$'
+      AND s.kategorie = ANY(%s::varchar[])
+      AND COALESCE(s.deleted, false) = false
+    ORDER BY lower(btrim(s.jmeno)) NULLS LAST,
+             btrim(p.typsluzby),
+             p.{day}::integer,
+             p.id
+    LIMIT 5001
+"""
+
+
+def normalize_chip_code(code: str) -> str:
+    """Bezpečná normalizace kódu čipu pro read lookup.
+
+    `public.cipy.cislo` je `varchar(16)`; referenční čtečka i DB funkce
+    doplňují kód nulami zleva. Význam kódu se nedopočítává.
+    """
+
+    if not isinstance(code, str):
+        raise ValueError("Kód čipu musí být text.")
+    value = code.strip()
+    if (
+        not value
+        or len(value) > 16
+        or any(not character.isalnum() for character in value)
+    ):
+        raise ValueError("Kód čipu nemá platný formát.")
+    return value
+
+
+def _optional_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _diner_state_label(code: str | None) -> str:
+    if code == "A":
+        return "Aktivní"
+    if not code:
+        return "Stav neuveden"
+    return f"Stav {code} (význam nedoložen)"
 
 
 def normalize_search_text(text: str) -> str:
@@ -281,6 +457,338 @@ class OrderReadService:
                     for row in rows
                 ]
 
+    def identify_chip(self, code: str) -> ChipIdentification:
+        """Scope-safe identifikace čipu pro workflow „Identifikovat čip“.
+
+        Nepoužívá `public.nacti_cip`, protože ta nefiltruje scope a mohla by
+        vrátit identitu strávníka z jiné provozovny. Identita se do výsledku
+        dostane jen přes JOIN omezený na `allowed_categories`.
+        """
+
+        normalized = normalize_chip_code(code)
+        scope = self._scope(Permission.CHIPS_VIEW)
+        self.policy.require(Permission.DINERS_VIEW)
+        with self._session() as (connection, repository):
+            with connection.transaction():
+                repository.configure_read_transaction(
+                    self.settings.business_timezone,
+                    self.settings.statement_timeout_ms,
+                )
+                row = repository.fetchone(
+                    """
+                    WITH target AS (
+                      SELECT btrim(c.cislo) AS code,
+                             c.stravnik AS owner_reference,
+                             NULLIF(btrim(c.stav), '') AS status_code
+                      FROM public.cipy AS c
+                      WHERE lower(btrim(c.cislo)) IN (%(code)s, %(padded)s)
+                      ORDER BY
+                        CASE WHEN c.stav = 'P' THEN 0 ELSE 1 END,
+                        c.vydano DESC NULLS LAST,
+                        c.id DESC NULLS LAST
+                      LIMIT 1
+                    )
+                    SELECT t.code,
+                           t.status_code,
+                           (t.owner_reference IS NOT NULL
+                            AND t.owner_reference <> 0) AS has_owner_reference,
+                           s.evidcislo,
+                           btrim(s.jmeno) AS name,
+                           btrim(s.kategorie) AS category,
+                           COALESCE(btrim(s.trida), '') AS class_name
+                    FROM target AS t
+                    LEFT JOIN public.stravnik AS s
+                      ON s.evidcislo = t.owner_reference
+                     AND s.kategorie = ANY(%(scope)s::varchar[])
+                     AND s.stav = 'A'
+                     AND COALESCE(s.deleted, false) = false
+                     AND s.hromadny IS NOT TRUE
+                    """,
+                    {
+                        "code": normalized.lower(),
+                        "padded": normalized.zfill(16).lower(),
+                        "scope": sorted(scope),
+                    },
+                )
+        if row is None:
+            return ChipIdentification(code=normalized, exists=False)
+        status_code = (
+            str(row["status_code"]) if row["status_code"] is not None else None
+        )
+        owner = (
+            DinerSummary(
+                evidcislo=int(row["evidcislo"]),
+                name=str(row["name"]),
+                category=str(row["category"]),
+                class_name=str(row["class_name"]),
+            )
+            if row["evidcislo"] is not None
+            else None
+        )
+        return ChipIdentification(
+            code=str(row["code"]),
+            exists=True,
+            status_code=status_code,
+            status_label=_chip_status_label(status_code),
+            owner=owner,
+            owner_restricted=owner is None and bool(row["has_owner_reference"]),
+        )
+
+    def load_diner_profile(self, evidcislo: int) -> DinerProfile:
+        """Detailní read-only karta strávníka.
+
+        Vrací jen sloupce s doloženým významem. Tajné hodnoty (`pin`),
+        rodné číslo, kontaktní a přihlašovací údaje se nečtou vůbec.
+        """
+
+        if isinstance(evidcislo, bool) or not isinstance(evidcislo, int):
+            raise ValueError("evidcislo musí být celé číslo.")
+        scope = self._scope(Permission.DINERS_VIEW)
+        with self._session() as (connection, repository):
+            with connection.transaction():
+                repository.configure_read_transaction(
+                    self.settings.business_timezone,
+                    self.settings.statement_timeout_ms,
+                )
+                rows = repository.fetchall(
+                    """
+                    SELECT s.evidcislo,
+                           btrim(s.jmeno) AS name,
+                           btrim(s.kategorie) AS category,
+                           NULLIF(btrim(k.nazev), '') AS category_name,
+                           NULLIF(upper(btrim(k.norma)), '') AS category_norm,
+                           COALESCE(btrim(s.trida), '') AS class_name,
+                           s.datumnarozeni AS birth_date,
+                           NULLIF(btrim(s.varsymb), '') AS variable_symbol,
+                           NULLIF(btrim(s.zpusobplatby), '') AS payment_method,
+                           NULLIF(btrim(s.stav), '') AS state_code,
+                           NULLIF(
+                             btrim(
+                               concat_ws(
+                                 ' · ',
+                                 NULLIF(btrim(s.poznamka), ''),
+                                 NULLIF(btrim(s.poznamka2), '')
+                               )
+                             ),
+                             ''
+                           ) AS note,
+                           s.hromadny,
+                           s.preplatekmm, s.platittm, s.platitpm,
+                           s.platbatm, s.platbabm,
+                           k.limitprihlasky
+                    FROM public.stravnik AS s
+                    LEFT JOIN public.kategor AS k
+                      ON k.oznaceni = s.kategorie
+                    WHERE s.evidcislo = %s
+                      AND s.kategorie = ANY(%s::varchar[])
+                      AND s.stav = 'A'
+                      AND COALESCE(s.deleted, false) = false
+                      AND s.hromadny IS NOT TRUE
+                    """,
+                    (evidcislo, sorted(scope)),
+                )
+                if len(rows) != 1:
+                    raise OrderBusinessError(
+                        ErrorCode.OUT_OF_SCOPE_OR_INACTIVE,
+                        "Strávník není pro tuto LAB provozovnu dostupný.",
+                    )
+                row = rows[0]
+                chips = self._load_chips(repository, evidcislo)
+        credit = calculate_credit(
+            Diner(
+                evidcislo=int(row["evidcislo"]),
+                kategorie=str(row["category"]),
+                hromadny=bool(row["hromadny"]),
+                preplatekmm=row["preplatekmm"],
+                platittm=row["platittm"],
+                platitpm=row["platitpm"],
+                platbatm=row["platbatm"],
+                platbabm=row["platbabm"],
+            )
+        )
+        state_code = (
+            str(row["state_code"]) if row["state_code"] is not None else None
+        )
+        return DinerProfile(
+            evidcislo=int(row["evidcislo"]),
+            name=str(row["name"]),
+            category=str(row["category"]),
+            category_name=_optional_text(row["category_name"]),
+            category_norm=_optional_text(row["category_norm"]),
+            class_name=str(row["class_name"]),
+            birth_date=row["birth_date"] if isinstance(row["birth_date"], date) else None,
+            variable_symbol=_optional_text(row["variable_symbol"]),
+            payment_method=_optional_text(row["payment_method"]),
+            state_code=state_code,
+            state_label=_diner_state_label(state_code),
+            note=_optional_text(row["note"]),
+            finance=DinerFinance(
+                available_credit=credit,
+                minimum_balance=calculate_minimum_balance(
+                    row["limitprihlasky"]
+                ),
+            ),
+            chips=chips,
+        )
+
+    def next_cooking_day(self, after: date) -> date | None:
+        """První varný den po zadaném dni podle `public.varnedny`.
+
+        Neodvozuje se z pracovního týdne; rozhoduje autoritativní kalendář
+        varných dnů pro zobrazované typy stravy.
+        """
+
+        if not isinstance(after, date):
+            raise ValueError("after musí být date.")
+        self._scope(Permission.REPORTS_VIEW)
+        day_identifiers = sql.SQL(", ").join(
+            sql.Identifier(column) for column in DAY_COLUMNS
+        )
+        months: list[date] = []
+        cursor_month = date(after.year, after.month, 1)
+        for _ in range(4):
+            months.append(cursor_month)
+            cursor_month = (
+                date(cursor_month.year + 1, 1, 1)
+                if cursor_month.month == 12
+                else date(cursor_month.year, cursor_month.month + 1, 1)
+            )
+        with self._session() as (connection, repository):
+            with connection.transaction():
+                repository.configure_read_transaction(
+                    self.settings.business_timezone,
+                    self.settings.statement_timeout_ms,
+                )
+                meal_names = [
+                    item.typstravy
+                    for item, _order in self._load_meal_types(repository)
+                ]
+                if not meal_names:
+                    return None
+                rows = repository.fetchall(
+                    sql.SQL(
+                        """
+                        SELECT rok, mesic, {days}
+                        FROM public.varnedny
+                        WHERE typsluzby = ANY(%s::varchar[])
+                          AND make_date(rok, mesic, 1) = ANY(%s::date[])
+                        """
+                    ).format(days=day_identifiers),
+                    (meal_names, months),
+                )
+        candidates: set[date] = set()
+        for row in rows:
+            year = int(row["rok"])
+            month = int(row["mesic"])
+            for index, column in enumerate(DAY_COLUMNS, start=1):
+                if str(row[column] or "").strip() != "A":
+                    continue
+                try:
+                    candidate = date(year, month, index)
+                except ValueError:
+                    continue
+                if candidate > after:
+                    candidates.add(candidate)
+        return min(candidates) if candidates else None
+
+    def load_daily_report(self, target: date) -> DailyReport:
+        """Denní sestava: jídelníček, kategorie, normy a jmenný seznam.
+
+        Všechna data se čtou dávkově v jedné read transakci, aby náhled
+        neblokoval GUI a nevznikal N+1 dotaz na strávníka.
+        """
+
+        if not isinstance(target, date):
+            raise ValueError("target musí být date.")
+        scope = self._scope(Permission.REPORTS_VIEW)
+        categories = sorted(scope)
+        day = sql.Identifier(DAY_COLUMNS[target.day - 1])
+        with self._session() as (connection, repository):
+            with connection.transaction():
+                repository.configure_read_transaction(
+                    self.settings.business_timezone,
+                    self.settings.statement_timeout_ms,
+                )
+                subject_row = repository.fetchone(
+                    """
+                    SELECT NULLIF(btrim(hodnota), '') AS subject_name
+                    FROM public.parametry
+                    WHERE lower(btrim(sekce)) = lower('BACKUP')
+                      AND lower(btrim(parametr)) = lower('NameSubject')
+                      AND NULLIF(btrim(hodnota), '') IS NOT NULL
+                    LIMIT 1
+                    """
+                )
+                menu_rows = repository.fetchall(
+                    sql.SQL(_ORDER_SUMMARY_SQL).format(day=day),
+                    (target.year, target.month, categories, target),
+                )
+                category_rows = repository.fetchall(
+                    sql.SQL(_CATEGORY_SUMMARY_SQL).format(day=day),
+                    (categories, target.year, target.month),
+                )
+                norm_rows = repository.fetchall(
+                    sql.SQL(_NORM_SUMMARY_SQL).format(day=day),
+                    (target.year, target.month, categories),
+                )
+                named_rows = repository.fetchall(
+                    sql.SQL(_NAMED_LIST_SQL).format(day=day),
+                    (target, target.year, target.month, categories),
+                )
+        if len(named_rows) > _REPORT_ROW_LIMIT:
+            raise OrderBusinessError(
+                ErrorCode.POSTCONDITION_FAILED,
+                "Náhled sestavy překročil bezpečný limit řádků.",
+            )
+        return DailyReport(
+            target_date=target,
+            subject_name=(
+                _optional_text(subject_row["subject_name"])
+                if subject_row is not None
+                else None
+            ),
+            menus=tuple(
+                OrderReportRow(
+                    meal_type=str(row["meal_type"]),
+                    menu=int(row["menu"]),
+                    portions=int(row["portions"]),
+                    meal_name=_optional_text(row["meal_name"]),
+                )
+                for row in menu_rows
+            ),
+            categories=tuple(
+                CategoryOrderSummary(
+                    category=str(row["category"]),
+                    category_name=_optional_text(row["category_name"]),
+                    norm=_optional_text(row["norm"]),
+                    orders=int(row["orders"]),
+                )
+                for row in category_rows
+            ),
+            norms=tuple(
+                NormMenuSummary(
+                    meal_type=str(row["meal_type"]),
+                    norm=_optional_text(row["norm"]),
+                    menu=int(row["menu"]),
+                    portions=int(row["portions"]),
+                )
+                for row in norm_rows
+            ),
+            diners=tuple(
+                NamedOrderRow(
+                    evidcislo=int(row["evidcislo"]),
+                    name=str(row["name"] or ""),
+                    category=str(row["category"]),
+                    category_name=_optional_text(row["category_name"]),
+                    norm=_optional_text(row["norm"]),
+                    meal_type=str(row["meal_type"]),
+                    menu=int(row["menu"]),
+                    meal_name=_optional_text(row["meal_name"]),
+                )
+                for row in named_rows
+            ),
+        )
+
     def load_pickup_status(self, target: date) -> list[PickupStatusRow]:
         if not isinstance(target, date):
             raise ValueError("target musí být date.")
@@ -498,35 +1006,7 @@ class OrderReadService:
                 "Strávník není pro tuto LAB provozovnu dostupný.",
             )
         row = rows[0]
-        chips: tuple[DinerChip, ...] = ()
-        if Permission.CHIPS_VIEW in self.policy.permissions:
-            chip_rows = repository.fetchall(
-                """
-                SELECT btrim(c.cislo) AS code,
-                       NULLIF(btrim(c.stav), '') AS status_code
-                FROM public.cipy AS c
-                WHERE c.stravnik = %s
-                  AND NULLIF(btrim(c.cislo), '') IS NOT NULL
-                ORDER BY
-                  CASE WHEN c.stav = 'P' THEN 0 ELSE 1 END,
-                  c.vydano DESC NULLS LAST,
-                  c.id DESC NULLS LAST,
-                  c.cislo
-                """,
-                (evidcislo,),
-            )
-            chips = tuple(
-                DinerChip(
-                    code=str(chip["code"]),
-                    status_code=(
-                        str(chip["status_code"])
-                        if chip["status_code"] is not None
-                        else None
-                    ),
-                    status_label=_chip_status_label(chip["status_code"]),
-                )
-                for chip in chip_rows
-            )
+        chips = self._load_chips(repository, evidcislo)
         credit = calculate_credit(
             Diner(
                 evidcislo=int(row["evidcislo"]),
@@ -552,6 +1032,43 @@ class OrderReadService:
                 else None
             ),
             chips=chips,
+        )
+
+    def _load_chips(
+        self,
+        repository: OrderReadRepository,
+        evidcislo: int,
+    ) -> tuple[DinerChip, ...]:
+        """Scope-safe čipy strávníka; bez `chips.view` se nečtou vůbec."""
+
+        if Permission.CHIPS_VIEW not in self.policy.permissions:
+            return ()
+        chip_rows = repository.fetchall(
+            """
+            SELECT btrim(c.cislo) AS code,
+                   NULLIF(btrim(c.stav), '') AS status_code
+            FROM public.cipy AS c
+            WHERE c.stravnik = %s
+              AND NULLIF(btrim(c.cislo), '') IS NOT NULL
+            ORDER BY
+              CASE WHEN c.stav = 'P' THEN 0 ELSE 1 END,
+              c.vydano DESC NULLS LAST,
+              c.id DESC NULLS LAST,
+              c.cislo
+            """,
+            (evidcislo,),
+        )
+        return tuple(
+            DinerChip(
+                code=str(chip["code"]),
+                status_code=(
+                    str(chip["status_code"])
+                    if chip["status_code"] is not None
+                    else None
+                ),
+                status_label=_chip_status_label(chip["status_code"]),
+            )
+            for chip in chip_rows
         )
 
     def get_allowed_menu_numbers(

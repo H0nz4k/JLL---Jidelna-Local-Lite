@@ -30,6 +30,78 @@ class DinerDetail(DinerSummary):
     chips: tuple[DinerChip, ...] = ()
 
 
+CHIP_NOT_FOUND = "Čip nebyl nalezen."
+CHIP_OWNER_UNAVAILABLE = "Čip nemá dostupného vlastníka."
+CHIP_OUT_OF_SCOPE = "Čip není pro tuto provozovnu dostupný."
+
+
+@dataclass(frozen=True, slots=True)
+class ChipIdentification:
+    """Výsledek scope-safe identifikace čipu.
+
+    Pro vlastníka mimo `allowed_categories` se nikdy nevrací identita, pouze
+    `owner_restricted`. Stav čipu se nedopočítává, přebírá se z `public.cipy`.
+    """
+
+    code: str
+    exists: bool
+    status_code: str | None = None
+    status_label: str = "Stav neuveden"
+    owner: DinerSummary | None = None
+    owner_restricted: bool = False
+
+    @property
+    def opens_card(self) -> bool:
+        return self.owner is not None
+
+    @property
+    def message(self) -> str:
+        if not self.exists:
+            return CHIP_NOT_FOUND
+        if self.owner is not None:
+            return f"Čip {self.code} — {self.status_label}"
+        if self.owner_restricted:
+            return CHIP_OUT_OF_SCOPE
+        return CHIP_OWNER_UNAVAILABLE
+
+
+@dataclass(frozen=True, slots=True)
+class DinerFinance:
+    """Pouze doložené finanční hodnoty.
+
+    `available_credit` je stejný výpočet, který používá objednávkový
+    preflight; `minimum_balance` je doložený limit z `public.kategor`.
+    Nedoložené sloupce se záměrně nezobrazují.
+    """
+
+    available_credit: Decimal
+    minimum_balance: Decimal
+
+    @property
+    def headroom(self) -> Decimal:
+        return self.available_credit - self.minimum_balance
+
+
+@dataclass(frozen=True, slots=True)
+class DinerProfile:
+    """Read-only detail strávníka bez tajných a nedoložených hodnot."""
+
+    evidcislo: int
+    name: str
+    category: str
+    category_name: str | None
+    category_norm: str | None
+    class_name: str
+    birth_date: date | None
+    variable_symbol: str | None
+    payment_method: str | None
+    state_code: str | None
+    state_label: str
+    note: str | None
+    finance: DinerFinance
+    chips: tuple[DinerChip, ...] = ()
+
+
 @dataclass(frozen=True, slots=True)
 class MenuOption:
     menu: int
@@ -131,3 +203,78 @@ class DinerReportRow:
     name: str
     category: str
     class_name: str
+
+
+MISSING_MEAL_NAME = "[název v jídelníčku nenalezen]"
+MISSING_NORM = "[bez normy]"
+DEFAULT_NORMS: tuple[str, ...] = ("A", "B", "C", "D")
+
+
+@dataclass(frozen=True, slots=True)
+class NamedOrderRow:
+    """Jedna objednávka jednoho strávníka pro jeden typ stravy."""
+
+    evidcislo: int
+    name: str
+    category: str
+    category_name: str | None
+    norm: str | None
+    meal_type: str
+    menu: int
+    meal_name: str | None
+
+    @property
+    def category_label(self) -> str:
+        return self.category_name or self.category
+
+    @property
+    def meal_label(self) -> str:
+        return self.meal_name or MISSING_MEAL_NAME
+
+    @property
+    def norm_label(self) -> str:
+        return self.norm or MISSING_NORM
+
+
+@dataclass(frozen=True, slots=True)
+class CategoryOrderSummary:
+    category: str
+    category_name: str | None
+    norm: str | None
+    orders: int
+
+    @property
+    def category_label(self) -> str:
+        return self.category_name or self.category
+
+
+@dataclass(frozen=True, slots=True)
+class NormMenuSummary:
+    meal_type: str
+    norm: str | None
+    menu: int
+    portions: int
+
+    @property
+    def norm_label(self) -> str:
+        return self.norm or MISSING_NORM
+
+
+@dataclass(frozen=True, slots=True)
+class DailyReport:
+    """Kompletní denní sestava pro jeden den a jeden scope."""
+
+    target_date: date
+    subject_name: str | None
+    menus: tuple[OrderReportRow, ...]
+    categories: tuple[CategoryOrderSummary, ...]
+    norms: tuple[NormMenuSummary, ...]
+    diners: tuple[NamedOrderRow, ...]
+
+    @property
+    def total_portions(self) -> int:
+        return sum(item.portions for item in self.menus)
+
+    @property
+    def total_orders(self) -> int:
+        return len(self.diners)

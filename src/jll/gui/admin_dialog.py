@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import threading
 
-from PySide6.QtCore import QThreadPool, Qt, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -23,13 +23,39 @@ from PySide6.QtWidgets import (
 )
 
 from ..admin_service import AdminService
-from ..chip_reader import ChipReader, masked_chip_summary
+from ..chip_reader import (
+    ChipReader,
+    ReaderState,
+    available_serial_ports,
+    masked_chip_summary,
+)
 from ..config import LabConfig
 from ..identity_store import UserRecord
 from ..policy import Permission
 from . import theme
+from .chip_dialog import ChipReadDialog
 from .theme import TextRole
-from .workers import FunctionWorker
+
+#: Nabídka běžných rychlostí; výchozí 19 200 odpovídá doložené referenci.
+BAUD_RATES: tuple[int, ...] = (9_600, 19_200, 38_400, 57_600, 115_200)
+
+LINE_ENDS: tuple[tuple[str, str], ...] = (
+    ("CR (\\r)", "\r"),
+    ("LF (\\n)", "\n"),
+    ("CRLF (\\r\\n)", "\r\n"),
+)
+
+READER_STATE_LABELS: dict[ReaderState, str] = {
+    ReaderState.READY: "Připojena",
+    ReaderState.READING: "Připojena – probíhá čtení",
+    ReaderState.STOPPED: "Nepřipojena",
+    ReaderState.DISCONNECTED: "Nepřipojena",
+    ReaderState.ERROR: "Chyba",
+}
+
+
+def reader_state_label(state: ReaderState) -> str:
+    return READER_STATE_LABELS.get(state, "Neznámý stav")
 
 
 class NewUserDialog(QDialog):
@@ -56,6 +82,7 @@ class NewUserDialog(QDialog):
 
 class AdminDialog(QDialog):
     policy_changed = Signal()
+    reader_config_changed = Signal(object)
 
     def __init__(
         self,
@@ -68,8 +95,6 @@ class AdminDialog(QDialog):
         self.config = config
         self.service = service
         self.reader = reader
-        self.thread_pool = QThreadPool.globalInstance()
-        self._reader_cancel = threading.Event()
         self.setWindowTitle("JidelnaLocalLite – Administrace")
         self.resize(760, 540)
         layout = QVBoxLayout(self)
@@ -185,15 +210,119 @@ class AdminDialog(QDialog):
         return widget
 
     def _reader_tab(self) -> QWidget:
+        """Administrace čtečky: stav, COM port, protokol a test.
+
+        Port se nikdy nevybírá automaticky, protože model čtečky není
+        autoritativně doložený. Uživatel jej volí ručně z OS enumerace.
+        """
+
         widget = QWidget()
-        layout = QFormLayout(widget)
+        layout = QVBoxLayout(widget)
+        form_host = QWidget()
+        layout_form = QFormLayout(form_host)
+
+        self.reader_status = QLabel("—")
+        theme.apply_role(self.reader_status, TextRole.ACTION)
+        self.reader_device = QLabel("—")
+        theme.apply_role(self.reader_device, TextRole.META)
+        self.reader_last = QLabel(masked_chip_summary(None))
+        theme.apply_role(self.reader_last, TextRole.META)
+
+        self.reader_port = QComboBox()
+        self.reader_port.setToolTip(
+            "COM porty podle enumerace operačního systému."
+        )
+        self.reader_baud = QComboBox()
+        for value in BAUD_RATES:
+            self.reader_baud.addItem(str(value), value)
+        if self.config.reader_baud_rate not in BAUD_RATES:
+            self.reader_baud.addItem(
+                str(self.config.reader_baud_rate),
+                self.config.reader_baud_rate,
+            )
+        self.reader_baud.setCurrentIndex(
+            self.reader_baud.findData(self.config.reader_baud_rate)
+        )
+        self.reader_line_end = QComboBox()
+        for label, value in LINE_ENDS:
+            self.reader_line_end.addItem(label, value)
+        self.reader_line_end.setCurrentIndex(
+            max(0, self.reader_line_end.findData(self.config.reader_line_end))
+        )
+        self.reader_line_end.setToolTip(
+            "Ukončení zprávy čtečky. Výchozí CR odpovídá referenčnímu protokolu."
+        )
+
+        layout_form.addRow("Stav:", self.reader_status)
+        layout_form.addRow("Zařízení:", self.reader_device)
+        layout_form.addRow("Port:", self.reader_port)
+        layout_form.addRow("Baudrate:", self.reader_baud)
+        layout_form.addRow("Ukončení zprávy:", self.reader_line_end)
+        layout_form.addRow("Poslední načtení:", self.reader_last)
+        layout.addWidget(form_host)
+
+        actions = QHBoxLayout()
+        self.reader_refresh_button = QPushButton("Obnovit porty a stav")
+        self.reader_refresh_button.clicked.connect(self._refresh_reader_view)
+        actions.addWidget(self.reader_refresh_button)
+        self.reader_save_button = QPushButton("Uložit nastavení čtečky")
+        theme.apply_role(self.reader_save_button, TextRole.ACTION)
+        self.reader_save_button.setProperty("variant", "primary")
+        self.reader_save_button.clicked.connect(self._save_reader_settings)
+        self.reader_save_button.setEnabled(self.service.reader_settings_writable)
+        if not self.service.reader_settings_writable:
+            self.reader_save_button.setToolTip(
+                "Instalační konfigurace není dostupná, nastavení nelze uložit."
+            )
+        actions.addWidget(self.reader_save_button)
+        self.reader_test_button = QPushButton("Test čtečky")
+        self.reader_test_button.clicked.connect(self._test_reader)
+        actions.addWidget(self.reader_test_button)
+        actions.addStretch()
+        layout.addLayout(actions)
+
+        note = QLabel(
+            "Nastavení čtečky se ukládá pouze do lokální instalační "
+            "konfigurace. Nemění databázi a vyžaduje oprávnění "
+            "admin.reader i opětovné zadání PINu."
+        )
+        note.setWordWrap(True)
+        theme.apply_role(note, TextRole.META)
+        layout.addWidget(note)
+        layout.addStretch()
+        self._refresh_reader_view()
+        return widget
+
+    def _refresh_reader_view(self) -> None:
+        """Znovu načte COM porty a aktuální stav čtečky."""
+
+        selected = self.reader_port.currentData()
+        target = selected or self.config.reader_port
+        self.reader_port.clear()
+        self.reader_port.addItem("(nenastaveno)", None)
+        known = set()
+        for option in available_serial_ports():
+            self.reader_port.addItem(option.label, option.device)
+            known.add(option.device)
+        if target and target not in known:
+            self.reader_port.addItem(
+                f"{target} — nyní nedostupný",
+                target,
+            )
+        index = self.reader_port.findData(target) if target else 0
+        self.reader_port.setCurrentIndex(max(0, index))
+
         if self.reader is None:
-            layout.addRow("Stav:", QLabel("Čtečka není nakonfigurována."))
-            return widget
+            self.reader_status.setText("Čtečka není nakonfigurována.")
+            self.reader_device.setText("—")
+            self.reader_test_button.setEnabled(False)
+            return
         status = self.reader.status()
+        self.reader_status.setText(
+            f"{reader_state_label(status.state)} — {status.message}"
+        )
         info = self.reader.device_info()
-        self.reader_status = QLabel(f"{status.state.value}: {status.message}")
-        self.reader_device = QLabel(
+        self.reader_device.setText(
             " / ".join(
                 part
                 for part in (
@@ -204,15 +333,28 @@ class AdminDialog(QDialog):
                 )
                 if part
             )
+            or "—"
         )
-        self.reader_last = QLabel(masked_chip_summary(None))
-        self.reader_test_button = QPushButton("Test načtení čipu")
-        self.reader_test_button.clicked.connect(self._test_reader)
-        layout.addRow("Stav:", self.reader_status)
-        layout.addRow("Zařízení:", self.reader_device)
-        layout.addRow("Poslední načtení:", self.reader_last)
-        layout.addRow("", self.reader_test_button)
-        return widget
+        self.reader_test_button.setEnabled(True)
+
+    def _save_reader_settings(self) -> None:
+        try:
+            updated = self.service.save_reader_settings(
+                port=self.reader_port.currentData(),
+                baud_rate=int(self.reader_baud.currentData()),
+                line_end=str(self.reader_line_end.currentData()),
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "Nastavení nelze uložit", str(exc))
+            return
+        self.config = updated
+        self.reader_config_changed.emit(updated)
+        QMessageBox.information(
+            self,
+            "Nastavení čtečky uloženo",
+            "Nové nastavení se použije pro další čtení.",
+        )
+        self._refresh_reader_view()
 
     def _test_reader(self) -> None:
         if self.reader is None:
@@ -222,45 +364,23 @@ class AdminDialog(QDialog):
         except Exception as exc:
             QMessageBox.warning(self, "Diagnostika není dostupná", str(exc))
             return
-        self._reader_cancel.clear()
-        self.reader_test_button.setEnabled(False)
-        self.reader_status.setText("Čekám na čip (max. 10 s)…")
-
-        def operation():
-            assert self.reader is not None
-            self.reader.start()
-            return self.reader.read_once(
-                timeout_seconds=10,
-                cancel_event=self._reader_cancel,
+        dialog = ChipReadDialog(
+            self.reader,
+            timeout_seconds=10,
+            title="Test čtečky",
+            parent=self,
+        )
+        accepted = dialog.exec() == QDialog.Accepted
+        if accepted and dialog.chip_read is not None:
+            self.reader_last.setText(
+                masked_chip_summary(dialog.chip_read.code)
             )
-
-        worker = FunctionWorker(1, operation)
-        worker.signals.succeeded.connect(self._reader_succeeded)
-        worker.signals.failed.connect(self._reader_failed)
-        self.thread_pool.start(worker)
-
-    def _reader_succeeded(
-        self,
-        _request_id: int,
-        result: object,
-        _duration_ms: float,
-    ) -> None:
-        self.reader_test_button.setEnabled(True)
-        code = getattr(result, "code", None)
-        self.reader_last.setText(masked_chip_summary(code))
-        self.reader_status.setText("Načtení proběhlo.")
-
-    def _reader_failed(
-        self,
-        _request_id: int,
-        error: object,
-        _duration_ms: float,
-    ) -> None:
-        self.reader_test_button.setEnabled(True)
-        self.reader_status.setText(f"Test selhal: {error}")
+            self.reader_status.setText("Načtení proběhlo.")
+        elif dialog.error_message:
+            self.reader_status.setText(f"Test selhal: {dialog.error_message}")
+        self._refresh_reader_view()
 
     def closeEvent(self, event) -> None:
-        self._reader_cancel.set()
         if self.reader is not None:
             self.reader.stop()
         super().closeEvent(event)

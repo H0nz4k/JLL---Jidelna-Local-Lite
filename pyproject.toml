@@ -21,6 +21,9 @@ test = [
     "pytest>=9.1.1,<10",
     "pytest-qt>=4.5.0,<5",
 ]
+pdf = [
+    "reportlab>=4.2,<5",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

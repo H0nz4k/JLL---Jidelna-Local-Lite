@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import dataclasses
 import time
 from collections.abc import Callable
+from pathlib import Path
 
+from .config import LabConfig, save_lab_config
 from .identity_store import IdentityStore, UserRecord
 from .policy import Permission
 from .session import AuthService, SessionManager
@@ -21,6 +24,8 @@ class AdminService:
         *,
         reauth_seconds: float = 300,
         clock: Callable[[], float] = time.monotonic,
+        lab_config: LabConfig | None = None,
+        config_path: str | Path | None = None,
     ) -> None:
         self.session = session
         self.auth = auth
@@ -28,6 +33,8 @@ class AdminService:
         self.reauth_seconds = reauth_seconds
         self._clock = clock
         self._reauth_until = 0.0
+        self._lab_config = lab_config
+        self._config_path = Path(config_path) if config_path else None
 
     def reauthenticate(self, pin: str) -> None:
         self.session.require(Permission.ADMIN_USERS)
@@ -105,3 +112,37 @@ class AdminService:
 
     def require_reader_diagnostics(self) -> None:
         self._require(Permission.ADMIN_READER)
+
+    @property
+    def reader_settings_writable(self) -> bool:
+        """Zápis nastavení čtečky je možný jen se známým instalačním configem."""
+
+        return self._lab_config is not None and self._config_path is not None
+
+    def save_reader_settings(
+        self,
+        *,
+        port: str | None,
+        baud_rate: int,
+        line_end: str,
+    ) -> LabConfig:
+        """Uloží ne-secret nastavení čtečky do instalační konfigurace.
+
+        Vyžaduje `admin.reader` i platný reauth. Operace se nikdy nedotkne
+        databáze; validaci hodnot provádí `LabConfig`.
+        """
+
+        self._require(Permission.ADMIN_READER)
+        if self._lab_config is None or self._config_path is None:
+            raise RuntimeError(
+                "Instalační konfigurace není dostupná, nastavení nelze uložit."
+            )
+        updated = dataclasses.replace(
+            self._lab_config,
+            reader_port=(port.strip() or None) if port else None,
+            reader_baud_rate=int(baud_rate),
+            reader_line_end=line_end,
+        )
+        save_lab_config(updated, self._config_path)
+        self._lab_config = updated
+        return updated

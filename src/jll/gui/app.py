@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 
 from ..admin_service import AdminService
 from ..application import OrderApplicationService
-from ..chip_reader import SerialLineChipReader, UnavailableChipReader
+from ..chip_reader import build_chip_reader
 from ..config import load_lab_config
 from ..identity_store import IdentityStore
 from ..orders.service import OrderService
@@ -89,7 +89,13 @@ def build_window(
     session = SessionManager(config, store)
     session.start(user)
     auth = AuthService(store)
-    admin_service = AdminService(session, auth, store)
+    admin_service = AdminService(
+        session,
+        auth,
+        store,
+        lab_config=config,
+        config_path=config_path,
+    )
     pool = config.create_pool()
     try:
         read_service = OrderReadService(
@@ -109,16 +115,10 @@ def build_window(
             session.current_policy,
             session.current_actor,
         )
-        chip_reader = (
-            SerialLineChipReader(
-                config.reader_port,
-                baud_rate=config.reader_baud_rate,
-                line_end=config.reader_line_end.encode("ascii"),
-            )
-            if config.reader_port
-            else UnavailableChipReader(
-                "Fyzická čtečka není nakonfigurována ani hardwarově ověřena."
-            )
+        chip_reader = build_chip_reader(
+            config.reader_port,
+            baud_rate=config.reader_baud_rate,
+            line_end=config.reader_line_end,
         )
         window = MainWindow(
             config,

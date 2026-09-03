@@ -208,6 +208,22 @@ def style_sheet() -> str:
         background: {COLORS["ordered_background"]};
         border-color: {COLORS["ordered_accent"]};
     }}
+    QFrame#pickupRow {{
+        background: {COLORS["surface"]};
+        border: {BORDER_WIDTH}px solid {COLORS["border"]};
+        border-radius: {RADIUS["md"]}px;
+    }}
+    QFrame#pickupRow[complete="true"] {{
+        background: {COLORS["ordered_background"]};
+        border-color: {COLORS["ordered_accent"]};
+    }}
+    QLabel#pickupRemaining {{
+        color: {COLORS["accent"]};
+        min-width: {2 * MENU_BADGE_WIDTH}px;
+    }}
+    QFrame#pickupRow[complete="true"] QLabel#pickupRemaining {{
+        color: {COLORS["ordered_accent"]};
+    }}
     QLabel#menuNumber {{
         color: {COLORS["text_secondary"]};
         min-width: {MENU_BADGE_WIDTH}px;

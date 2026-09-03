@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from datetime import date
 
-from PySide6.QtCore import QDate, QThreadPool
+from PySide6.QtCore import QDate, QThreadPool, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDateEdit,
     QDialog,
     QDialogButtonBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -20,6 +22,8 @@ from PySide6.QtWidgets import (
 
 from ..read_models import DinerReportRow, OrderReportRow, PickupStatusRow
 from ..read_service import OrderReadService
+from . import theme
+from .theme import TextRole
 from .workers import FunctionWorker
 
 
@@ -97,6 +101,74 @@ class _ReadDialog(QDialog):
         raise NotImplementedError
 
 
+class PickupStatusPanel(QWidget):
+    """Panely stavu výdeje s dominantní hodnotou ZBÝVÁ.
+
+    `ZBÝVÁ` je hlavní provozní metrika, proto má největší typografickou roli
+    z FÁZE 3C. Panel je pouze pro čtení; samotný výdej JLL neimplementuje.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.rows: list[PickupStatusRow] = []
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(theme.SPACING["sm"])
+        self.empty_label = QLabel("Pro tento den nejsou žádné objednávky.")
+        theme.apply_role(self.empty_label, TextRole.BODY)
+        self._layout.addWidget(self.empty_label)
+        self._layout.addStretch()
+
+    def render(self, rows: list[PickupStatusRow]) -> None:
+        self.rows = rows
+        while self._layout.count():
+            item = self._layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None and widget is not self.empty_label:
+                widget.setParent(None)
+                widget.deleteLater()
+        self.empty_label.setVisible(not rows)
+        self._layout.addWidget(self.empty_label)
+        for row in rows:
+            self._layout.addWidget(self._row_panel(row))
+        self._layout.addStretch()
+
+    @staticmethod
+    def _row_panel(row: PickupStatusRow) -> QWidget:
+        panel = QFrame()
+        panel.setObjectName("pickupRow")
+        panel.setProperty("complete", "true" if row.remaining <= 0 else "false")
+        layout = QHBoxLayout(panel)
+        layout.setContentsMargins(
+            theme.SPACING["lg"],
+            theme.SPACING["md"],
+            theme.SPACING["lg"],
+            theme.SPACING["md"],
+        )
+        layout.setSpacing(theme.SPACING["xl"])
+        identity = QVBoxLayout()
+        identity.setSpacing(0)
+        title = QLabel(f"{row.meal_type} · menu {row.menu}")
+        theme.apply_role(title, TextRole.ACTION)
+        identity.addWidget(title)
+        counts = QLabel(
+            f"Objednáno {row.ordered} · vydáno {row.picked_up}"
+        )
+        theme.apply_role(counts, TextRole.META)
+        identity.addWidget(counts)
+        layout.addLayout(identity)
+        layout.addStretch()
+        caption = QLabel("ZBÝVÁ")
+        theme.apply_role(caption, TextRole.META)
+        layout.addWidget(caption)
+        remaining = QLabel(str(row.remaining))
+        remaining.setObjectName("pickupRemaining")
+        remaining.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        theme.apply_role(remaining, TextRole.PRIMARY)
+        layout.addWidget(remaining)
+        return panel
+
+
 class PickupStatusDialog(_ReadDialog):
     def __init__(
         self,
@@ -105,10 +177,18 @@ class PickupStatusDialog(_ReadDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__("Stav výdeje – pouze pro čtení", service, target, parent)
-        self.table = _table(
-            ["Typ stravy", "Menu", "Objednáno", "Vydáno", "Zbývá"]
+        self.panel = PickupStatusPanel()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidget(self.panel)
+        self.layout.addWidget(scroll, 1)
+        note = QLabel(
+            "Read-only přehled ve scope provozovny. Výdej se v JLL neprovádí."
         )
-        self.layout.addWidget(self.table)
+        note.setWordWrap(True)
+        theme.apply_role(note, TextRole.META)
+        self.layout.addWidget(note)
         close = QDialogButtonBox(QDialogButtonBox.Close)
         close.rejected.connect(self.reject)
         self.layout.addWidget(close)
@@ -120,24 +200,8 @@ class PickupStatusDialog(_ReadDialog):
         self._run(lambda: self.service.load_pickup_status(target))
 
     def render(self, result: object) -> None:
-        rows = list(result)  # type: ignore[arg-type]
-        self.table.setRowCount(len(rows))
-        for row_number, row in enumerate(rows):
-            assert isinstance(row, PickupStatusRow)
-            for column, value in enumerate(
-                (
-                    row.meal_type,
-                    row.menu,
-                    row.ordered,
-                    row.picked_up,
-                    row.remaining,
-                )
-            ):
-                self.table.setItem(
-                    row_number,
-                    column,
-                    QTableWidgetItem(str(value)),
-                )
+        rows = [row for row in result if isinstance(row, PickupStatusRow)]
+        self.panel.render(rows)
 
 
 class ReportsDialog(_ReadDialog):

@@ -51,6 +51,10 @@ identity, oprávnění a objednávkový write jsou implementované a otestované
   AND.
 - Karta strávníka s read-only identitou, kategorií, třídou, evidenčním
   číslem a kreditem.
+- Detailní karta strávníka (Údaje, Finance, Čipy) jen z doložených sloupců;
+  PIN, rodné číslo ani kontaktní údaje se nečtou.
+- Náhledy editace a nového strávníka mají zakázané `Uložit`, protože jejich
+  write kontrakty nejsou doložené.
 
 ### Přihlášky a odhlášky
 
@@ -68,16 +72,26 @@ identity, oprávnění a objednávkový write jsou implementované a otestované
 
 - Read-only přehled čipových řádků včetně doloženého popisu stavu.
 - `ChipReader` abstrakce s fake i sériovým adapterem a explicitním portem.
+- Tlačítko `Identifikovat čip` načte čip a otevře kartu jeho vlastníka;
+  čip mimo scope nevrátí žádnou identitu.
+- Administrace → Čtečka: COM port z OS enumerace, baudrate, ukončení řádku
+  a modální test čtečky. Uložení vyžaduje `admin.reader` i reautentizaci.
 - Čipové zápisy jsou fail-closed.
 
 ### Stav výdeje
 
-Read-only preview objednáno / vydáno / zbývá pro vybraný den ve stejném
-scope jako ostatní čtení.
+Read-only přehled objednáno / vydáno / zbývá pro vybraný den ve stejném
+scope jako ostatní čtení. `ZBÝVÁ` je dominantní hodnota a dokončený řádek
+je zeleně odlišený.
 
 ### Sestavy
 
-Read-only preview přihlášek a seznamu strávníků.
+Denní sestava pro `Dnes`, `Zítra`, následující varný den nebo zvolené
+datum: jmenný seznam objednávek (společně nebo po kategoriích), jídelníček
+s počty porcí, souhrn kategorií a rozpad menu podle norem `A`–`D`.
+Volitelný PDF export vyžaduje `reports.print` a extra `pdf`
+(`pip install "jidelna-local-lite[pdf]"`); font se hledá v systému, žádný
+se nekopíruje do repozitáře.
 
 ### Setup / Login / Admin
 
@@ -217,8 +231,11 @@ PRODUKČNÍ WRITE NENÍ POVOLEN.
 - Diner create/edit write kontrakt není PROVEN.
 - Server-side enforcement `allowed_categories` v produkci není uzavřený.
 - Centrální produkční users/permissions/audit nejsou uzavřené.
-- Sériová čtečka není fyzicky HIL ověřená.
-- Stav výdeje a sestavy jsou pouze read-only preview.
+- Sériová čtečka není fyzicky HIL ověřená; stav `Připojena` vychází z OS
+  enumerace portu, ne z odpovědi zařízení.
+- Stav výdeje a sestavy jsou pouze read-only; JLL nevydává ani neúčtuje.
+- PDF export je volitelný. Bez balíčku `reportlab` nebo bez systémového
+  TrueType fontu se ohlásí česky a zbytek sestav funguje dál.
 - Změna DB, instance a scope v administraci je read-only.
 - Scaling 125 % a 150 % je ověřený automatickým testem přes velikost
   fontu, ne skutečným přepnutím Windows DPI.

@@ -24,10 +24,9 @@ def test_pickup_dialog_loads_batch_status_off_gui_thread(
     dialog = PickupStatusDialog(_ReadService(), date(2026, 9, 3))  # type: ignore[arg-type]
     qtbot.addWidget(dialog)
     dialog.show()
-    qtbot.waitUntil(lambda: dialog.table.rowCount() == 1)
-    assert dialog.table.item(0, 2).text() == "12"
-    assert dialog.table.item(0, 3).text() == "5"
-    assert dialog.table.item(0, 4).text() == "7"
+    qtbot.waitUntil(lambda: len(dialog.panel.rows) == 1)
+    row = dialog.panel.rows[0]
+    assert (row.ordered, row.picked_up, row.remaining) == (12, 5, 7)
 
 
 def test_reports_dialog_loads_scoped_previews_off_gui_thread(

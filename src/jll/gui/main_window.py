@@ -48,12 +48,13 @@ from ..application import (
     present_error,
 )
 from ..admin_service import AdminService
-from ..chip_reader import ChipReader
+from ..chip_reader import ChipReader, build_chip_reader
 from ..config import LabConfig
 from ..orders.errors import ErrorCode, OrderBusinessError
 from ..orders.models import OrderAction
 from ..policy import Permission, SessionPolicy
 from ..read_models import (
+    ChipIdentification,
     DinerDay,
     DinerDetail,
     DinerSummary,
@@ -67,8 +68,11 @@ from ..version import application_version, audit_client_version
 from ..write_gates import CHIP_WRITE_GATES, DINER_WRITE_GATES
 from . import theme
 from .admin_dialog import AdminDialog
+from .chip_dialog import ChipReadDialog
+from .diner_card_dialog import DinerCardDialog
 from .menu_row import MenuRow, format_money
-from .read_overview_dialog import PickupStatusDialog, ReportsDialog
+from .read_overview_dialog import PickupStatusDialog
+from .report_dialog import DailyReportDialog
 from .theme import TextRole
 from .workers import FunctionWorker
 
@@ -159,6 +163,7 @@ class MainWindow(QMainWindow):
         self._search_generation = 0
         self._detail_generation = 0
         self._mutation_generation = 0
+        self._chip_lookup_generation = 0
         self._current_diner: DinerSummary | None = None
         self._current_day: DinerDay | None = None
         self._diagnostics: LabDiagnostics | None = None
@@ -260,6 +265,13 @@ class MainWindow(QMainWindow):
             DINER_WRITE_GATES["edit_personal"].tooltip
         )
         navigation.addWidget(self.edit_diner_button)
+        self.card_button = self._button("Karta strávníka")
+        self.card_button.setEnabled(False)
+        self.card_button.setToolTip(
+            "Detailní read-only karta vybraného strávníka"
+        )
+        self.card_button.clicked.connect(self._open_diner_card)
+        navigation.addWidget(self.card_button)
         self.pickup_button = self._button("Stav výdeje")
         self.pickup_button.clicked.connect(self._open_pickup_status)
         navigation.addWidget(self.pickup_button)
@@ -288,6 +300,15 @@ class MainWindow(QMainWindow):
         self.search_edit.setPlaceholderText("Jméno, ev. číslo nebo čip…")
         self.search_edit.setClearButtonEnabled(True)
         search_row.addWidget(self.search_edit, 1)
+        self.identify_chip_button = self._button(
+            "Identifikovat čip",
+            "primary",
+        )
+        self.identify_chip_button.setToolTip(
+            "Načte čip ze čtečky a otevře kartu jeho vlastníka"
+        )
+        self.identify_chip_button.clicked.connect(self._identify_chip)
+        search_row.addWidget(self.identify_chip_button)
         diner_list_layout.addLayout(search_row)
         diner_list_layout.addWidget(
             self._label("SEZNAM POVOLENÝCH STRÁVNÍKŮ", TextRole.ACTION, "accent")
@@ -661,6 +682,25 @@ class MainWindow(QMainWindow):
         )
         self.new_diner_button.setEnabled(False)
         self.edit_diner_button.setEnabled(False)
+        self.card_button.setVisible(Permission.DINERS_VIEW in policy.permissions)
+        self.card_button.setEnabled(
+            self._lab_guard_verified
+            and Permission.DINERS_VIEW in policy.permissions
+            and self._current_diner is not None
+        )
+        self.identify_chip_button.setVisible(
+            Permission.CHIPS_VIEW in policy.permissions
+        )
+        reader_available = self.chip_reader is not None
+        self.identify_chip_button.setEnabled(
+            self._lab_guard_verified
+            and Permission.CHIPS_VIEW in policy.permissions
+            and reader_available
+        )
+        if not reader_available:
+            self.identify_chip_button.setToolTip(
+                "Čtečka není nakonfigurována. Nastavení je v Administraci."
+            )
         for permission, button in self.chip_action_buttons.items():
             button.setVisible(permission in policy.permissions)
             button.setEnabled(False)
@@ -693,14 +733,142 @@ class MainWindow(QMainWindow):
 
     def _open_reports(self) -> None:
         try:
-            self._current_policy().require(Permission.REPORTS_VIEW)
-            ReportsDialog(
+            policy = self._current_policy()
+            policy.require(Permission.REPORTS_VIEW)
+            DailyReportDialog(
                 self.read_service,
                 self.date_edit.date().toPython(),
-                self,
+                policy,
+                allowed_categories=self.config.allowed_categories,
+                parent=self,
             ).exec()
         except Exception as exc:
             self._show_error(exc)
+
+    def _open_diner_card(self) -> None:
+        """Detailní karta právě vybraného strávníka."""
+
+        if self._current_diner is None:
+            return
+        try:
+            policy = self._current_policy()
+            policy.require(Permission.DINERS_VIEW)
+        except Exception as exc:
+            self._show_error(exc)
+            return
+        self.open_diner_card(self._current_diner.evidcislo)
+
+    def open_diner_card(
+        self,
+        evidcislo: int,
+        *,
+        highlight_chip: str | None = None,
+    ) -> DinerCardDialog:
+        dialog = DinerCardDialog(
+            self.read_service,
+            evidcislo,
+            self._current_policy(),
+            highlight_chip=highlight_chip,
+            parent=self,
+        )
+        dialog.exec()
+        return dialog
+
+    def _identify_chip(self) -> None:
+        """Načte čip a bezpečně najde jeho vlastníka ve scope provozovny."""
+
+        if self.chip_reader is None:
+            return
+        try:
+            self._current_policy().require(Permission.CHIPS_VIEW)
+        except Exception as exc:
+            self._show_error(exc)
+            return
+        dialog = ChipReadDialog(
+            self.chip_reader,
+            timeout_seconds=10,
+            title="Identifikovat čip",
+            parent=self,
+        )
+        if dialog.exec() != QDialog.Accepted or dialog.chip_read is None:
+            if dialog.error_message:
+                self.statusBar().showMessage(dialog.error_message, 8000)
+            return
+        self._lookup_chip(dialog.chip_read.code)
+
+    def _lookup_chip(self, code: str) -> None:
+        self._chip_lookup_generation += 1
+        request_id = self._chip_lookup_generation
+        self.identify_chip_button.setEnabled(False)
+        self.statusBar().showMessage("Hledám vlastníka čipu…")
+        service = self.read_service
+        worker = FunctionWorker(
+            request_id,
+            lambda: service.identify_chip(code),
+        )
+        worker.signals.succeeded.connect(self._chip_identified)
+        worker.signals.failed.connect(self._chip_lookup_failed)
+        self.thread_pool.start(worker)
+
+    def _chip_identified(
+        self,
+        request_id: int,
+        result: object,
+        duration_ms: float,
+    ) -> None:
+        if request_id != self._chip_lookup_generation:
+            return
+        self._restore_identify_button()
+        self._set_duration("identifikace čipu", duration_ms)
+        if not isinstance(result, ChipIdentification):
+            return
+        self.statusBar().showMessage(result.message, 10000)
+        if result.owner is None:
+            QMessageBox.information(self, "Identifikace čipu", result.message)
+            return
+        self._select_result_row(result.owner)
+        self.open_diner_card(
+            result.owner.evidcislo,
+            highlight_chip=result.code,
+        )
+
+    def _chip_lookup_failed(
+        self,
+        request_id: int,
+        error: object,
+        _duration_ms: float,
+    ) -> None:
+        if request_id != self._chip_lookup_generation:
+            return
+        self._restore_identify_button()
+        if isinstance(error, BaseException):
+            self._show_error(error)
+
+    def _restore_identify_button(self) -> None:
+        try:
+            policy = self._current_policy()
+        except Exception:
+            return
+        self.identify_chip_button.setEnabled(
+            self._lab_guard_verified
+            and Permission.CHIPS_VIEW in policy.permissions
+            and self.chip_reader is not None
+        )
+
+    def _select_result_row(self, diner: DinerSummary) -> None:
+        """Vybere strávníka v seznamu, pokud tam po identifikaci je."""
+
+        for row in range(self.results.rowCount()):
+            item = self.results.item(row, 0)
+            if item is None:
+                continue
+            summary = item.data(Qt.UserRole)
+            if isinstance(summary, DinerSummary) and (
+                summary.evidcislo == diner.evidcislo
+            ):
+                self.results.selectRow(row)
+                return
+        self.search_edit.setText(str(diner.evidcislo))
 
     def _open_admin(self) -> None:
         if self.admin_service is None:
@@ -722,10 +890,26 @@ class MainWindow(QMainWindow):
                 self,
             )
             dialog.policy_changed.connect(self._refresh_policy)
+            dialog.reader_config_changed.connect(self._apply_reader_config)
             dialog.exec()
             self._refresh_policy()
         except Exception as exc:
             QMessageBox.warning(self, "Administrace není dostupná", str(exc))
+
+    def _apply_reader_config(self, config: object) -> None:
+        """Po uložení nastavení postaví čtečku znovu, bez restartu aplikace."""
+
+        if not isinstance(config, LabConfig):
+            return
+        if self.chip_reader is not None:
+            self.chip_reader.stop()
+        self.config = config
+        self.chip_reader = build_chip_reader(
+            config.reader_port,
+            baud_rate=config.reader_baud_rate,
+            line_end=config.reader_line_end,
+        )
+        self._refresh_policy()
 
     def _toggle_diagnostics(self, expanded: bool) -> None:
         layout = self.diagnostic_group.layout()
@@ -877,6 +1061,16 @@ class MainWindow(QMainWindow):
         self.reports_button.setEnabled(
             not blocked
             and Permission.REPORTS_VIEW in self._current_policy().permissions
+        )
+        self.identify_chip_button.setEnabled(
+            not blocked
+            and Permission.CHIPS_VIEW in self._current_policy().permissions
+            and self.chip_reader is not None
+        )
+        self.card_button.setEnabled(
+            not blocked
+            and Permission.DINERS_VIEW in self._current_policy().permissions
+            and self._current_diner is not None
         )
         self.guard_label.setText(
             "LAB guard: BLOKOVÁNO" if blocked else "LAB guard: OVĚŘENO"
@@ -1030,6 +1224,9 @@ class MainWindow(QMainWindow):
         if not isinstance(diner, DinerSummary):
             return
         self._current_diner = diner
+        self.card_button.setEnabled(
+            self._lab_guard_verified and self.card_button.isVisible()
+        )
         self._load_current_day()
 
     def _date_changed(self, _date: QDate) -> None:

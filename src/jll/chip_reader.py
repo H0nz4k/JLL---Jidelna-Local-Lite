@@ -400,6 +400,77 @@ class SerialLineChipReader(ChipReader):
         raise ChipReaderTimeout("Čtečka se v časovém limitu znovu nepřipojila.")
 
 
+@dataclass(frozen=True, slots=True)
+class SerialPortOption:
+    """Jeden COM port z OS enumerace.
+
+    Model, VID ani PID se nedopočítávají; zobrazuje se jen to, co OS vrátí.
+    """
+
+    device: str
+    description: str | None = None
+    manufacturer: str | None = None
+
+    @property
+    def label(self) -> str:
+        detail = self.description or self.manufacturer
+        return f"{self.device} — {detail}" if detail else self.device
+
+
+def available_serial_ports() -> tuple[SerialPortOption, ...]:
+    """COM porty podle OS enumerace, seřazené podle názvu zařízení."""
+
+    options = [
+        SerialPortOption(
+            device=str(port.device),
+            description=_optional_port_text(
+                getattr(port, "description", None)
+            ),
+            manufacturer=_optional_port_text(
+                getattr(port, "manufacturer", None)
+            ),
+        )
+        for port in list_ports.comports()
+        if str(getattr(port, "device", "")).strip()
+    ]
+    return tuple(sorted(options, key=lambda item: item.device.casefold()))
+
+
+def build_chip_reader(
+    port: str | None,
+    *,
+    baud_rate: int = 19_200,
+    line_end: str = "\r",
+) -> ChipReader:
+    """Vytvoří čtečku podle instalační konfigurace.
+
+    Bez nakonfigurovaného portu vrací `UnavailableChipReader`; port se nikdy
+    nehádá z enumerace, protože model čtečky není autoritativně doložený.
+    """
+
+    if not port or not port.strip():
+        return UnavailableChipReader(
+            "Čtečka není nakonfigurována. Vyberte COM port v administraci."
+        )
+    try:
+        return SerialLineChipReader(
+            port.strip(),
+            baud_rate=baud_rate,
+            line_end=line_end.encode("ascii"),
+        )
+    except (ValueError, UnicodeEncodeError) as exc:
+        return UnavailableChipReader(f"Nastavení čtečky není platné: {exc}")
+
+
+def _optional_port_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.casefold() == "n/a":
+        return None
+    return text
+
+
 def masked_chip_summary(code: str | None) -> str:
     if not code:
         return "žádné načtení"

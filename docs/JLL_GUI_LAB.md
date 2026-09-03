@@ -89,9 +89,13 @@ konkrétní tvar `<instance_id>:<short_code>` a nikdy není pouze `JLL`.
 - `src/jll/admin_service.py` – reauth a auditované admin operace;
 - `src/jll/config.py` – fail-closed LAB konfigurace a connection pool;
 - `src/jll/lab_guard.py` – společný LAB guard;
-- `src/jll/read_models.py` – read-only model karty a měsíce;
-- `src/jll/read_service.py` – scoped seznam, search, detail, měsíc a menu;
-- `src/jll/chip_reader.py` – fake a explicitně konfigurovaný serial reader;
+- `src/jll/read_models.py` – read-only model karty, měsíce a sestav;
+- `src/jll/read_service.py` – scoped seznam, search, detail, měsíc, menu,
+  identifikace čipu, profil strávníka a denní sestava;
+- `src/jll/reports.py` – čistá agregace sestav bez SQL a bez GUI;
+- `src/jll/reports_pdf.py` – volitelný PDF výstup sestavy;
+- `src/jll/chip_reader.py` – fake a explicitně konfigurovaný serial reader
+  včetně OS enumerace portů a factory podle konfigurace;
 - `src/jll/write_gates.py` – strojové per-operation FÁZE 3A write gatey;
 - `src/jll/version.py` – canonical verze a auditní `client_version`;
 - `src/jll/application.py` – user intent, error mapping a refresh po write;
@@ -99,7 +103,11 @@ konkrétní tvar `<instance_id>:<short_code>` a nikdy není pouze `JLL`.
 - `src/jll/gui/theme.py` – jediné design tokeny a jediný QSS blok;
 - `src/jll/gui/menu_row.py` – klikací řádek jídelníčku;
 - `src/jll/gui/setup_wizard.py`, `login_dialog.py`, `admin_dialog.py`;
-- `src/jll/gui/read_overview_dialog.py` – stav výdeje a sestavy;
+- `src/jll/gui/chip_dialog.py` – modální čtení čipu s timeoutem a zrušením;
+- `src/jll/gui/diner_card_dialog.py` – detailní read-only karta a náhledy
+  zápisových formulářů;
+- `src/jll/gui/report_dialog.py` – denní sestavy a volba dne;
+- `src/jll/gui/read_overview_dialog.py` – stav výdeje;
 - `src/jll/gui/workers.py` – práce mimo GUI thread;
 - `src/jll/gui/app.py` – sestavení aplikace a lokální logging;
 - `config/lab.json` – lokální LAB policy a DB target bez hesla;
@@ -316,8 +324,31 @@ ad-hoc barvou. Minimální hit target řádku je `ROW_HEIGHT` (32 px).
 9. Po úspěchu i business chybě se stav vždy znovu načte z databáze.
 10. Karta zobrazuje všechny čipové řádky dostupné pro vybraného strávníka.
     `P` a `Z` mají doložený popis; neznámé stavy nejsou domýšleny.
-11. **Stav výdeje** zobrazuje pro datum objednáno/vydáno/zbývá.
-12. **Sestavy** nabízí scope-safe preview přihlášek a seznamu strávníků.
+11. **Stav výdeje** zobrazuje pro datum objednáno/vydáno/zbývá; `ZBÝVÁ` je
+    dominantní hodnota a dokončený řádek je zeleně odlišený.
+12. **Sestavy** otevřou denní sestavu: jmenný seznam, jídelníček s porcemi,
+    kategorie a rozpad norem, s volbou `Dnes`, `Zítra`, následujícího
+    varného dne nebo konkrétního data.
+13. **Identifikovat čip** u search baru načte čip a otevře kartu jeho
+    vlastníka, pokud je ve scope; jinak zobrazí jen bezpečnou hlášku.
+14. **Karta strávníka** je detailní read-only pohled (Údaje, Finance, Čipy).
+    Náhledy `Editovat strávníka` a `Nový strávník` mají zakázané `Uložit`,
+    protože jejich write kontrakty nejsou doložené.
+
+## 9a. Detailní karta strávníka
+
+Karta zobrazuje jen sloupce s doloženým významem: evidenční číslo,
+kategorii a její název, normu, třídu, datum narození, variabilní symbol,
+způsob platby, stav a poznámky. PIN, rodné číslo, kontaktní ani přihlašovací
+údaje se z databáze vůbec nečtou.
+
+Finance ukazují disponibilní kredit stejným výpočtem, jaký používá
+objednávkový preflight, minimální povolený zůstatek z `public.kategor` a
+zbývající prostor do limitu. Nedoložené finanční sloupce se nezobrazují.
+
+Sekce Čipy vyžaduje `chips.view` a je pouze pro čtení. Právě identifikovaný
+čip je zvýrazněný tučně. Karta se načítá mimo GUI thread; při chybě se
+nezobrazí ani částečná identita, jen bezpečná hláška.
 
 ## 10. Klávesový workflow
 
@@ -384,20 +415,45 @@ Automatické testy pokrývají:
 - výraznější vybraný den než jemný marker dneška;
 - pouze 4 typografické role u všech labelů a tlačítek;
 - neexistenci lokálního QSS a lokálních velikostí fontu mimo theme;
-- odstranění duplicitního názvu u skupiny jednoho typu stravy.
+- odstranění duplicitního názvu u skupiny jednoho typu stravy;
+- enumeraci COM portů, `build_chip_reader`, uložení nastavení čtečky přes
+  `admin.reader` + reauth a zachování nedostupného nakonfigurovaného portu;
+- modální čtení čipu: úspěch, timeout, zrušení, nedostupná čtečka a odmítnutí
+  neomezeného timeoutu;
+- všechny čtyři výsledky identifikace čipu včetně toho, že čip mimo scope
+  neotevře kartu a nevrátí žádnou identitu;
+- stavy čipu `P`, `B`, `Z` i nedoložený stav bez interpretace `V`;
+- viditelnost a tooltip tlačítka `Identifikovat čip` podle `chips.view`
+  a podle dostupnosti čtečky;
+- kartu strávníka: doložené sloupce bez tajných hodnot, finance včetně
+  zbývajícího prostoru do limitu, čipy, zvýraznění identifikovaného čipu
+  a chybový stav bez částečné identity;
+- náhledy editace a nového strávníka se zakázaným `Uložit`;
+- sestavy: řazení s diakritikou, seskupení podle kategorií, matici norem
+  s nulami, prázdný den, `Dnes`/`Zítra`/následující varný den, výběr data,
+  chybový stav a viditelnost PDF podle `reports.print`;
+- PDF export synteticky (hlavička, `%%EOF`, úklid dočasného souboru,
+  odmítnutí jiné přípony a české glyfy ve zvoleném fontu);
+- panel stavu výdeje: dominantní `ZBÝVÁ`, kontextové počty, zelený stav
+  dokončeného řádku z theme a překreslení bez zbytků starých řádků;
+- scope-safe identifikaci čipu, profil strávníka a denní sestavu proti
+  klonu LAB databáze, včetně shody kreditu s objednávkovým preflightem
+  a shody součtu porcí se souhrnem přihlášek.
 
 Ruční/automatizovaný startup probe byl proveden nativně ve Windows.
 End-to-end workflow používá dočasnou databázi vytvořenou z
 `jll_demo_lab`; po testu je odstraněna.
 
-Poslední ověření (FÁZE 3C):
+Poslední ověření (noční mise po FÁZI 3D):
 
 ```text
 compileall: PASS
-unit testy: 129 PASS
-celá sada: 169 PASS + 3 očekávané strict XFAIL
+unit testy: 195 PASS
+celá sada: 243 PASS + 3 očekávané strict XFAIL
 Git Bash test launcher: PASS
 ```
+
+Předchozí ověření (FÁZE 3C): 129 unit PASS, celkem 169 PASS + 3 strict XFAIL.
 
 Vizuální smoke proti LAB DB (mimo repozitář,
 `%TEMP%/jll_layout_smoke_3c`), kategorie `KAT5`:
@@ -430,9 +486,14 @@ obrazový export by vložil osobní údaje do repozitáře.
   jejich write kontrakty nejsou plně doložené.
 - Tlačítka těchto operací používají společný registr `PARTIAL/BLOCKED`;
   změna permission sama write nezapne.
-- Stav výdeje a sestavy jsou implementované pouze jako read-only preview.
+- Stav výdeje i sestavy jsou pouze pro čtení; JLL nevydává ani neúčtuje.
 - Serial reader adapter je implementovaný podle zdrojové reference, ale
-  fyzický hardware nebyl připojen ani HIL ověřen.
+  fyzický hardware nebyl připojen ani HIL ověřen. Stav `Připojena` proto
+  znamená jen to, že nakonfigurovaný port vidí OS.
+- Identifikace čipu i test čtečky jsou ověřené pouze s `FakeChipReader`
+  a automatickými testy, ne skutečným přiložením čipu.
+- PDF export je volitelný; bez `reportlab` nebo bez systémového TrueType
+  fontu se ohlásí česky a zbytek sestav zůstane funkční.
 - Login, dynamické permissions a lokální Admin foundation jsou implementovány.
 - Změna DB/instance/scope v administraci zůstává read-only.
 - GUI není installer a nemá auto-update.

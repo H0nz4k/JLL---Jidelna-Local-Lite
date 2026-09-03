@@ -53,6 +53,9 @@ dump*.sql
 *_restore.sql
 *_snapshot.sql
 
+# Vytištěné sestavy obsahují jména strávníků a jejich objednávky.
+*.pdf
+
 # Lokální referenční materiál a LAB dump; nikdy do veřejného repozitáře
 zdroje/
 

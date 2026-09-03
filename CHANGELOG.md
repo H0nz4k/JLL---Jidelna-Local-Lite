@@ -6,6 +6,53 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+Noční mise: čtečka, identifikace čipu, detailní karta strávníka, denní
+sestavy a vizuální stav výdeje. Bez nového tagu; canonical verze zůstává
+`0.1.0` do ranního review.
+
+### Added
+
+- Administrace → Čtečka: výběr COM portu z OS enumerace, baudrate, ukončení
+  řádku, stav zařízení a uložení ne-secret nastavení do instalační
+  konfigurace. Uložení vyžaduje `admin.reader` i reautentizaci a nikdy se
+  nedotkne databáze.
+- Modální `Test čtečky` (`ChipReadDialog`) s promptem `Přiložte čip ke
+  čtečce…`, konečným timeoutem, zrušením a českými hláškami.
+- Tlačítko `Identifikovat čip` u vyhledávacího pole (`chips.view`). Načtený
+  kód se normalizuje a scope-safe lookup otevře kartu vlastníka jen uvnitř
+  `allowed_categories`.
+- Detailní read-only karta strávníka: Údaje, Finance a Čipy, se zvýrazněním
+  právě identifikovaného čipu.
+- Náhledy `Editovat strávníka` a `Nový strávník` se zakázaným `Uložit`
+  a vysvětlením, proč je zápis blokovaný.
+- Denní sestavy: jmenný seznam, jídelníček s porcemi, souhrn kategorií a
+  rozpad menu podle norem `A`–`D`, s volbou `Dnes`, `Zítra`, následujícího
+  varného dne nebo konkrétního data a s přepínačem společně/podle kategorií.
+- Volitelný PDF export sestav (`reports.print`, extra `pdf`). `reportlab` se
+  importuje až při exportu a font se hledá v systému nebo v
+  `JLL_REPORT_FONT`; žádný font se do repozitáře nekopíruje.
+- `OrderReadService.identify_chip`, `load_diner_profile`, `next_cooking_day`
+  a `load_daily_report`; agregace sestav v `src/jll/reports.py`.
+
+### Changed
+
+- Stav výdeje má panelový vzhled s dominantní hodnotou `ZBÝVÁ`; dokončený
+  řádek je odlišený zeleným pozadím z centrálního theme.
+- Jmenný seznam se řadí tak, aby diakritika nerozhazovala abecedu.
+
+### Fixed
+
+- Tlačítka `Identifikovat čip` a `Karta strávníka` se po úspěšném LAB guardu
+  správně povolí; dříve zůstala disabled až do další změny policy.
+- Volba dne v sestavách už nenačítá stejný den dvakrát.
+
+### Security
+
+- Identifikace čipu nepoužívá unscoped `public.nacti_cip`. Čip mimo scope
+  nevrací jméno, evidenční číslo, kategorii ani třídu.
+- Karta strávníka nečte PIN, rodné číslo, kontaktní ani přihlašovací údaje.
+- Vytvořené PDF obsahuje osobní údaje, proto je vyloučené z verzování.
+
 ## [0.1.0] – 2026-09-03
 
 První Git baseline LAB aplikace. Verze shrnuje stav po fázích 0A–3C.

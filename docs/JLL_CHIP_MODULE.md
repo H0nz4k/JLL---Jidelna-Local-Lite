@@ -9,10 +9,46 @@
 - `SerialLineChipReader`: explicitně nakonfigurovaný COM port, doložený
   serial-line protokol, bounded timeout, cancellation, reconnect a
   diagnostika z OS enumerace portů.
-- Admin záložka **Čtečka**: stav, zařízení, maskované poslední načtení a
-  desetisekundový test.
+- Admin záložka **Čtečka**: stav, zařízení, maskované poslední načtení,
+  výběr COM portu z OS enumerace, baudrate, ukončení řádku, uložení
+  nastavení a modální test čtečky.
+- Hlavní obrazovka: tlačítko **Identifikovat čip** u vyhledávacího pole.
 - karta strávníka: všechny řádky `public.cipy` patřící scope-safe vybranému
   strávníkovi; nedoložené stavové kódy jsou tak označené.
+
+## Nastavení čtečky v administraci
+
+COM porty se nabízejí jen z OS enumerace (`serial.tools.list_ports`); model,
+VID ani PID se nedopočítávají a port se nikdy nehádá. Uložení vyžaduje
+`admin.reader` i platnou PIN reautentizaci a zapisuje pouze ne-secret
+hodnoty do instalační konfigurace. Reader config se nikdy nedotkne databáze.
+
+Nakonfigurovaný port, který zrovna není v systému vidět, zůstane v seznamu
+označený jako nedostupný, aby uložené nastavení nezmizelo jen kvůli
+odpojenému kabelu.
+
+## Test čtečky a identifikace čipu
+
+Modální dialog `ChipReadDialog` ukazuje `Přiložte čip ke čtečce…`, má vždy
+konečný timeout (0–30 s), tlačítko `Zrušit` nastavující cancel event a
+lidskou českou hlášku pro timeout, zrušení i chybu čtečky. Nezapisuje do
+databáze a používá se pro admin diagnostiku i pro identifikaci čipu.
+
+Workflow **Identifikovat čip** (`chips.view`) načte čip, normalizuje kód a
+provede scope-safe lookup přes `OrderReadService.identify_chip()`:
+
+- vlastník v `allowed_categories` → otevře se jeho karta strávníka se
+  zvýrazněným právě načteným čipem a doloženým stavem (`P` přidělen,
+  `B` blokován, `Z` ztracen, ostatní jako nedoložený stav; `V` se
+  neinterpretuje);
+- vlastník mimo scope → pouze `Čip není pro tuto provozovnu dostupný.`
+  bez jména, evidenčního čísla, kategorie i třídy;
+- čip bez použitelného vlastníka → `Čip nemá dostupného vlastníka.`;
+- neznámý kód → `Čip nebyl nalezen.`
+
+Lookup nepoužívá `public.nacti_cip`, protože ta nefiltruje scope. Identita se
+do výsledku dostane jen přes JOIN omezený na `allowed_categories`. Bez
+nakonfigurované čtečky je tlačítko disabled a tooltip odkáže do administrace.
 
 Reader reference používá 19200 baud, ukončení `CR`, ASCII text a doplnění
 na 16 znaků zleva nulami. VID/PID ani konkrétní model zařízení nebyly ve
@@ -54,6 +90,11 @@ zablokování nemají dvě oddělené pravdy.
 
 ## Ověření a omezení
 
-Unit testy simulují serial port i fake reader. Integrační test načítá scoped
-čipy z izolované LAB kopie. Fyzický reader nebyl připojen ani ověřen; software
-PASS není HIL potvrzení.
+Unit testy simulují serial port i fake reader, pokrývají enumeraci portů,
+`build_chip_reader`, permission a reauth u uložení nastavení, timeout,
+cancellation a všechny čtyři výsledky identifikace včetně ochrany identity
+mimo scope. Integrační test načítá scoped čipy z izolované LAB kopie a
+ověřuje, že out-of-scope čip nevrátí žádnou identitu.
+
+Fyzický reader nebyl připojen ani ověřen; software PASS není HIL potvrzení.
+Stav `Připojena` proto vychází z OS enumerace portu, ne z odpovědi zařízení.
