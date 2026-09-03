@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jidelna-local-lite"
+version = "0.1.0"
+description = "LAB backend services for JidelnaLocalLite"
+requires-python = ">=3.11"
+dependencies = [
+    "psycopg>=3.3.5,<4",
+    "psycopg_pool>=3.3.1,<4",
+    "PySide6>=6.11.2,<7",
+    "argon2-cffi>=25.1.0,<26",
+    "keyring>=25.7.0,<26",
+    "pyserial>=3.5,<4",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=9.1.1,<10",
+    "pytest-qt>=4.5.0,<5",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+    "integration: requires a disposable local PostgreSQL LAB database",
+]

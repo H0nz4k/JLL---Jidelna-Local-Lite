@@ -1,0 +1,21 @@
+{
+  "site_name": "DEMO LAB",
+  "site_id": "DEMO",
+  "instance_id": "DEMO-LAB01",
+  "allowed_categories": [
+    "KAT1",
+    "KAT2"
+  ],
+  "host": "127.0.0.1",
+  "port": 5433,
+  "database": "jll_demo_lab",
+  "user": "postgres",
+  "environment": "lab",
+  "expected_system_identifier": "0000000000000000000",
+  "business_timezone": "Europe/Prague",
+  "strict_config_lock": true,
+  "search_limit": 30,
+  "reader_port": null,
+  "reader_baud_rate": 19200,
+  "reader_line_end": "\r"
+}

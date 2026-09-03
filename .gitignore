@@ -1,0 +1,71 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+
+# Runtime data
+logs/
+*.log
+tmp/
+temp/
+screenshots/
+*.tmp
+.tmp_*
+
+# Secrets a konkrétní instalace
+.env
+.env.*
+config/users*.json
+config/lab.json
+config/*.local.json
+config/*secret*
+*.key
+*.pem
+
+# Databázové dumpy a exporty.
+# Pozor: `*.sql` se neignoruje, aby zůstaly možné verzované migrace,
+# schema a testovací fixtures. Ignorují se jen dumpy a restore výstupy.
+*.dump
+*.backup
+*.bak
+*.sql.gz
+*.db
+*.sqlite
+*.sqlite3
+demo.sql
+dump*.sql
+*_dump.sql
+*_restore.sql
+*_snapshot.sql
+
+# Lokální referenční materiál a LAB dump; nikdy do veřejného repozitáře
+zdroje/
+
+# Interní zadání fází a pracovní pokyny: obsahují pracovní kontext
+# i ukázky reálných LAB dat. Do veřejného repozitáře nepatří.
+JLL_FAZE_*.md
+JLL_MASTER_*.md
+JLL_NOCNI_*.md
+JLL_POKYN_*.md
+JLL_PROJECT_START.md
+JLL_ARCHITEKTURA_*.md
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
