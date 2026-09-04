@@ -8,7 +8,7 @@ náhled neblokuje GUI a nevzniká N+1 dotaz na strávníka.
 
 ## Obsah sestavy
 
-    10|`OrderReadService.load_daily_report(target)` vrací:
+`OrderReadService.load_daily_report(target)` vrací:
 
 - **jmenný seznam** (`NamedOrderRow`): jméno, kategorie, typ stravy, číslo
   menu, norma a název objednaného jídla;
@@ -18,7 +18,7 @@ náhled neblokuje GUI a nevzniká N+1 dotaz na strávníka.
   objednávek;
 - **normy** (`NormMenuSummary`): rozpad menu podle normy pro každý typ
   stravy.
-    20|
+
 Všechny čtyři dotazy vždy aplikují efektivní `allowed_categories`. Přihlášky
 používají číselný marker `1..9` v příslušném `dXX`; názvy jídel jsou dávkově
 agregované z publikovaného českého jídelníčku. Jmenný seznam fail-closed
@@ -28,7 +28,7 @@ skončí chybou nad limitem řádků namísto tichého oříznutí.
 
 `src/jll/reports.py` neobsahuje SQL ani GUI. Řeší jen:
 
-    30|- řazení jmenného seznamu (jméno, typ stravy, menu, evidenční číslo);
+- řazení jmenného seznamu (jméno, typ stravy, menu, evidenční číslo);
 - řazení, ve kterém diakritika nerozhazuje abecedu (`Čermák` mezi `Cejnar`
   a `Dvořák`); digraf `ch` se neřeší, protože bez doložené collation by šlo
   o odhad;
@@ -38,7 +38,7 @@ skončí chybou nad limitem řádků namísto tichého oříznutí.
   jako v referenci.
 
 Stejná agregace se používá pro GUI náhled i pro PDF, takže tisk nemůže
-    40|zobrazit jiná čísla než obrazovka.
+zobrazit jiná čísla než obrazovka.
 
 ## Volba dne
 
@@ -48,7 +48,7 @@ stanice. `Následující varný den` používá `next_cooking_day()`, který čt
 autoritativní kalendář `public.varnedny` pro zobrazované typy stravy; den se
 neodvozuje z pracovního týdne. Pokud kalendář další varný den nemá, datum se
 nezmění a dialog to napíše.
-    50|
+
 ## PDF
 
 PDF export je volitelný a vyžaduje `reports.print`. `reportlab` je volitelná
@@ -58,7 +58,7 @@ uživatel dostane českou hlášku.
 
 Font se hledá v systému (Segoe UI, Arial, DejaVu Sans) nebo v proměnné
 `JLL_REPORT_FONT`. Žádný binární font se do repozitáře nekopíruje, takže
-    60|není potřeba řešit licenci fontu kvůli veřejnému repozitáři. Export zapisuje
+není potřeba řešit licenci fontu kvůli veřejnému repozitáři. Export zapisuje
 přes dočasný soubor, takže přerušený tisk nepřepíše dřívější platné PDF.
 
 Vytvořené PDF obsahuje osobní údaje strávníků. Do repozitáře nepatří a
@@ -68,7 +68,7 @@ Vytvořené PDF obsahuje osobní údaje strávníků. Do repozitáře nepatří 
 
 Unit testy pokrývají řazení včetně diakritiky, seskupení podle kategorií,
 matici norem s nulami, prázdný den, přepínání dnů, chybový stav a PDF
-    70|(hlavička `%PDF-`, `%%EOF`, úklid dočasného souboru, odmítnutí jiné přípony
+(hlavička `%PDF-`, `%%EOF`, úklid dočasného souboru, odmítnutí jiné přípony
 než `.pdf` a přítomnost českých glyfů ve zvoleném fontu).
 
 Integrační testy proti klonu LAB databáze ověřují, že jmenný seznam i
