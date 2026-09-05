@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -30,11 +31,19 @@ from ..chip_reader import (
     masked_chip_summary,
 )
 from ..config import LabConfig
-from ..identity_store import UserRecord
+from ..identity_store import SHORT_CODE_HINT, UserRecord, generate_user_id
+from ..permission_catalog import DEFAULT_OPERATOR_PERMISSIONS
 from ..policy import Permission
 from . import theme
 from .chip_dialog import ChipReadDialog
+from .permission_list import (
+    populate_permission_list,
+    selected_permissions_from_list,
+    set_checked_permissions,
+)
 from .theme import TextRole
+
+logger = logging.getLogger(__name__)
 
 #: Nabídka běžných rychlostí; výchozí 19 200 odpovídá doložené referenci.
 BAUD_RATES: tuple[int, ...] = (9_600, 19_200, 38_400, 57_600, 115_200)
@@ -62,22 +71,31 @@ class NewUserDialog(QDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Nový JLL uživatel")
+        self._generated_user_id = generate_user_id()
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.display_name = QLineEdit()
-        self.user_id = QLineEdit()
         self.short_code = QLineEdit()
+        self.short_code.setPlaceholderText("např. SUP")
+        self.short_code.setMaxLength(20)
         self.pin = QLineEdit()
         self.pin.setEchoMode(QLineEdit.Password)
         form.addRow("Jméno:", self.display_name)
-        form.addRow("User ID:", self.user_id)
-        form.addRow("Krátký kód:", self.short_code)
+        form.addRow("Kód uživatele:", self.short_code)
         form.addRow("PIN:", self.pin)
         layout.addLayout(form)
+        hint = QLabel(SHORT_CODE_HINT)
+        hint.setWordWrap(True)
+        theme.apply_role(hint, TextRole.META)
+        layout.addWidget(hint)
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    @property
+    def generated_user_id(self) -> str:
+        return self._generated_user_id
 
 
 class AdminDialog(QDialog):
@@ -129,8 +147,7 @@ class AdminDialog(QDialog):
         return self._readonly_form(
             [
                 ("Provozovna:", self.config.site_name),
-                ("Site ID:", self.config.site_id),
-                ("Instance ID:", self.config.instance_id),
+                ("Stanice:", self.config.instance_id),
                 ("Stav:", "Změny vyžadují samostatný ověřený workflow"),
             ]
         )
@@ -171,14 +188,13 @@ class AdminDialog(QDialog):
         right = QVBoxLayout()
         self.active = QCheckBox("Aktivní uživatel")
         right.addWidget(self.active)
-        right.addWidget(QLabel("Konkrétní oprávnění:"))
+        right.addWidget(QLabel("Oprávnění:"))
         self.permissions = QListWidget()
-        for permission in Permission:
-            item = QListWidgetItem(permission.value)
-            item.setData(Qt.UserRole, permission)
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Unchecked)
-            self.permissions.addItem(item)
+        populate_permission_list(
+            self.permissions,
+            include_admin=True,
+            defaults=frozenset(),
+        )
         right.addWidget(self.permissions, 1)
         self.save_access = QPushButton("Uložit přístup")
         self.save_access.clicked.connect(self._save_user_access)
@@ -415,20 +431,10 @@ class AdminDialog(QDialog):
         if not isinstance(user, UserRecord):
             return
         self.active.setChecked(user.active)
-        for index in range(self.permissions.count()):
-            item = self.permissions.item(index)
-            item.setCheckState(
-                Qt.Checked
-                if item.data(Qt.UserRole) in user.permissions
-                else Qt.Unchecked
-            )
+        set_checked_permissions(self.permissions, user.permissions)
 
     def _selected_permissions(self) -> frozenset[Permission]:
-        return frozenset(
-            self.permissions.item(index).data(Qt.UserRole)
-            for index in range(self.permissions.count())
-            if self.permissions.item(index).checkState() == Qt.Checked
-        )
+        return selected_permissions_from_list(self.permissions)
 
     def _save_user_access(self) -> None:
         current = self.users.currentItem()
@@ -442,7 +448,13 @@ class AdminDialog(QDialog):
                 self.active.isChecked(),
             )
         except Exception as exc:
-            QMessageBox.warning(self, "Změnu nelze uložit", str(exc))
+            logger.exception("Admin update_access failed: %s", exc)
+            QMessageBox.warning(
+                self,
+                "Změnu nelze uložit",
+                "Přístup uživatele se nepodařilo uložit. "
+                "Podrobnosti byly zapsány do diagnostického logu.",
+            )
             return
         self.policy_changed.emit()
         self._reload_users()
@@ -451,23 +463,26 @@ class AdminDialog(QDialog):
         dialog = NewUserDialog(self)
         if dialog.exec() != QDialog.Accepted:
             return
-        default_permissions = frozenset(
-            {
-                Permission.DINERS_VIEW,
-                Permission.CHIPS_VIEW,
-                Permission.ORDERS_VIEW,
-            }
-        )
+        existing = {user.user_id for user in self.service.list_users()}
         try:
             self.service.add_user(
-                user_id=dialog.user_id.text().strip(),
+                user_id=generate_user_id(existing=existing),
                 display_name=dialog.display_name.text().strip(),
                 short_code=dialog.short_code.text().strip(),
                 pin=dialog.pin.text(),
-                permissions=default_permissions,
+                permissions=DEFAULT_OPERATOR_PERMISSIONS,
             )
         except Exception as exc:
-            QMessageBox.warning(self, "Uživatele nelze vytvořit", str(exc))
+            logger.exception("Admin add_user failed: %s", exc)
+            message = (
+                str(exc)
+                if isinstance(exc, ValueError)
+                else (
+                    "Uživatele se nepodařilo vytvořit. "
+                    "Podrobnosti byly zapsány do diagnostického logu."
+                )
+            )
+            QMessageBox.warning(self, "Uživatele nelze vytvořit", message)
             return
         self.policy_changed.emit()
         self._reload_users()

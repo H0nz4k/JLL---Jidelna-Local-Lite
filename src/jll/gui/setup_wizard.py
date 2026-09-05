@@ -1,15 +1,17 @@
+"""First-run Setup Wizard – provozovna, stanice a identity bez technického šumu."""
+
 from __future__ import annotations
 
-import ipaddress
-from dataclasses import dataclass
+import logging
 from pathlib import Path
 
 import keyring
-import psycopg
 from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -23,20 +25,45 @@ from PySide6.QtWidgets import (
 
 from ..config import LabConfig, save_lab_config
 from ..identity import IDENTIFIER_PATTERN
-from ..identity_store import IdentityStore
+from ..identity_store import (
+    SHORT_CODE_HINT,
+    IdentityStore,
+    generate_user_id,
+)
+from ..permission_catalog import (
+    DEFAULT_OPERATOR_PERMISSIONS,
+    summarize_permissions,
+)
 from ..policy import Permission
+from ..setup_probe import DatabaseProbe, StationOption, derive_site_id, probe_lab_database
+from . import theme
+from .permission_list import (
+    permission_list_widget,
+    selected_permissions_from_list,
+)
+from .theme import TextRole
 from .workers import FunctionWorker
 
+logger = logging.getLogger(__name__)
 
-@dataclass(frozen=True, slots=True)
-class DatabaseProbe:
-    system_identifier: str
-    categories: tuple[str, ...]
+SUBJECT_MISSING_TEXT = (
+    "V databázi chybí název provozovny (parametr BACKUP / NameSubject). "
+    "Zadejte jej ručně, nebo doplňte parametr v databázi."
+)
+NEW_STATION_BLOCKED_TEXT = (
+    "Založení nové stanice zatím není povoleno. "
+    "Databázový zápis do public.stanice není v JLL bezpečně ověřen. "
+    "Vyberte existující stanici ze seznamu."
+)
+SETUP_FAILED_TEXT = (
+    "Nastavení se nepodařilo uložit. "
+    "Podrobnosti byly zapsány do diagnostického logu."
+)
 
 
 class SetupWizard(QWizard):
     PAGE_DATABASE = 0
-    PAGE_INSTANCE = 1
+    PAGE_STATION = 1
     PAGE_CATEGORIES = 2
     PAGE_ADMIN = 3
     PAGE_USERS = 4
@@ -56,11 +83,19 @@ class SetupWizard(QWizard):
         self.thread_pool = QThreadPool.globalInstance()
         self.database_probe: DatabaseProbe | None = None
         self._pending_database_values: tuple[str, str, str, str, str] | None = None
+        self._admin_user_id = generate_user_id()
+        self._regular_user_id = generate_user_id(
+            existing={self._admin_user_id}
+        )
         self.setWindowTitle("JidelnaLocalLite – první nastavení")
         self.setWizardStyle(QWizard.ModernStyle)
-        self.resize(650, 520)
+        self.resize(640, 560)
+        self.setButtonText(QWizard.BackButton, "Zpět")
+        self.setButtonText(QWizard.NextButton, "Další")
+        self.setButtonText(QWizard.FinishButton, "Dokončit")
+        self.setButtonText(QWizard.CancelButton, "Zrušit")
         self._database_page()
-        self._instance_page()
+        self._station_page()
         self._categories_page()
         self._admin_page()
         self._users_page()
@@ -73,12 +108,14 @@ class SetupWizard(QWizard):
         page = QWizardPage()
         page.setTitle(title)
         page.setSubTitle(description)
-        return page, QVBoxLayout(page)
+        layout = QVBoxLayout(page)
+        layout.setSpacing(theme.SPACING["md"])
+        return page, layout
 
     def _database_page(self) -> None:
         page, layout = self._page(
             "1. Databáze",
-            "Pouze lokální LAB databáze. Heslo nebude uloženo do JSON.",
+            "Připojení k lokální LAB databázi. Heslo se neukládá do JSON.",
         )
         form = QFormLayout()
         initial = self.initial_config
@@ -89,7 +126,7 @@ class SetupWizard(QWizard):
         self.db_password = QLineEdit()
         self.db_password.setEchoMode(QLineEdit.Password)
         self.db_password.setPlaceholderText(
-            "Prázdné = environment/keyring/PG auth"
+            "Prázdné = environment / keyring / PG auth"
         )
         form.addRow("Host:", self.db_host)
         form.addRow("Port:", self.db_port)
@@ -98,10 +135,13 @@ class SetupWizard(QWizard):
         form.addRow("DB heslo:", self.db_password)
         layout.addLayout(form)
         self.test_database_button = QPushButton("Otestovat spojení")
+        theme.apply_role(self.test_database_button, TextRole.ACTION)
+        self.test_database_button.setProperty("variant", "primary")
         self.test_database_button.clicked.connect(self._test_database)
         layout.addWidget(self.test_database_button)
         self.database_status = QLabel("Spojení zatím nebylo ověřeno.")
         self.database_status.setWordWrap(True)
+        theme.apply_role(self.database_status, TextRole.BODY)
         layout.addWidget(self.database_status)
         layout.addStretch()
         for field in (
@@ -114,29 +154,50 @@ class SetupWizard(QWizard):
             field.textChanged.connect(self._invalidate_database_probe)
         self.addPage(page)
 
-    def _instance_page(self) -> None:
+    def _station_page(self) -> None:
         page, layout = self._page(
-            "2. Provozovna / instance",
-            "Stabilní identita této instalace pro audit.",
+            "2. Provozovna a stanice",
+            "Provozovna se načte z databáze. Stanice odpovídá legacy STANICE.",
         )
         form = QFormLayout()
-        initial = self.initial_config
-        self.site_name = QLineEdit(initial.site_name if initial else "DEMO LAB")
-        self.site_id = QLineEdit(initial.site_id if initial else "DEMO")
-        self.instance_id = QLineEdit(
-            initial.instance_id if initial else "DEMO-LAB01"
+        self.site_name = QLineEdit()
+        self.site_name.setReadOnly(True)
+        self.site_name.setPlaceholderText("Načte se po ověření databáze")
+        form.addRow("Provozovna:", self.site_name)
+        self.subject_override = QCheckBox(
+            "Zadat název provozovny ručně (jen když chybí v databázi)"
         )
-        form.addRow("Název provozovny:", self.site_name)
-        form.addRow("Site ID:", self.site_id)
-        form.addRow("Instance ID:", self.instance_id)
+        self.subject_override.toggled.connect(self._toggle_subject_override)
         layout.addLayout(form)
+        layout.addWidget(self.subject_override)
+
+        station_row = QHBoxLayout()
+        self.station_combo = QComboBox()
+        self.station_combo.setMinimumWidth(260)
+        station_row.addWidget(self.station_combo, 1)
+        self.new_station_button = QPushButton("+ Nová stanice")
+        self.new_station_button.setEnabled(False)
+        self.new_station_button.setToolTip(NEW_STATION_BLOCKED_TEXT)
+        station_row.addWidget(self.new_station_button)
+        station_form = QFormLayout()
+        station_form.addRow("Stanice:", station_row)
+        layout.addLayout(station_form)
+
+        self.station_hint = QLabel(
+            "Stanice je stejný pojem jako v JídelnaSQL (např. VEDOUCI). "
+            "Interní identifikátor provozovny se generuje automaticky "
+            "a v běžném nastavení se nezobrazuje."
+        )
+        self.station_hint.setWordWrap(True)
+        theme.apply_role(self.station_hint, TextRole.META)
+        layout.addWidget(self.station_hint)
         layout.addStretch()
         self.addPage(page)
 
     def _categories_page(self) -> None:
         page, layout = self._page(
             "3. Povolené kategorie",
-            "Vyberte instalační scope. Prázdný scope je zakázán.",
+            "Vyberte kategorie strávníků dostupné na této instalaci.",
         )
         self.categories = QListWidget()
         layout.addWidget(self.categories)
@@ -145,104 +206,113 @@ class SetupWizard(QWizard):
     def _admin_page(self) -> None:
         page, layout = self._page(
             "4. První administrátor",
-            "PIN je uložen pouze jako salted Argon2id hash.",
+            "Administrátor má všechna oprávnění automaticky. PIN se ukládá "
+            "jen jako salted Argon2id hash.",
         )
         form = QFormLayout()
         self.admin_name = QLineEdit()
-        self.admin_id = QLineEdit()
         self.admin_short_code = QLineEdit()
+        self.admin_short_code.setPlaceholderText("např. VED")
+        self.admin_short_code.setMaxLength(20)
         self.admin_pin = QLineEdit()
         self.admin_pin_confirm = QLineEdit()
         for field in (self.admin_pin, self.admin_pin_confirm):
             field.setEchoMode(QLineEdit.Password)
         form.addRow("Jméno:", self.admin_name)
-        form.addRow("User ID:", self.admin_id)
-        form.addRow("Krátký kód:", self.admin_short_code)
+        form.addRow("Kód uživatele:", self.admin_short_code)
         form.addRow("PIN:", self.admin_pin)
         form.addRow("PIN znovu:", self.admin_pin_confirm)
         layout.addLayout(form)
+        hint = QLabel(SHORT_CODE_HINT)
+        hint.setWordWrap(True)
+        theme.apply_role(hint, TextRole.META)
+        layout.addWidget(hint)
+        admin_note = QLabel("Administrátor má všechna oprávnění automaticky.")
+        admin_note.setWordWrap(True)
+        theme.apply_role(admin_note, TextRole.ACTION)
+        layout.addWidget(admin_note)
         layout.addStretch()
         self.addPage(page)
 
     def _users_page(self) -> None:
         page, layout = self._page(
-            "5. Uživatelé",
-            "Volitelně vytvořte prvního běžného uživatele.",
+            "5. Další uživatel",
+            "Volitelně vytvořte prvního běžného uživatele (např. výdej).",
         )
         self.create_regular_user = QCheckBox("Vytvořit běžného uživatele")
         layout.addWidget(self.create_regular_user)
         form = QFormLayout()
         self.user_name = QLineEdit()
-        self.user_id = QLineEdit()
         self.user_short_code = QLineEdit()
+        self.user_short_code.setPlaceholderText("např. SUP")
+        self.user_short_code.setMaxLength(20)
         self.user_pin = QLineEdit()
         self.user_pin.setEchoMode(QLineEdit.Password)
         form.addRow("Jméno:", self.user_name)
-        form.addRow("User ID:", self.user_id)
-        form.addRow("Krátký kód:", self.user_short_code)
+        form.addRow("Kód uživatele:", self.user_short_code)
         form.addRow("PIN:", self.user_pin)
         layout.addLayout(form)
-        self.create_regular_user.toggled.connect(
-            lambda enabled: [
-                widget.setEnabled(enabled)
-                for widget in (
-                    self.user_name,
-                    self.user_id,
-                    self.user_short_code,
-                    self.user_pin,
-                )
-            ]
-        )
+        hint = QLabel(SHORT_CODE_HINT)
+        hint.setWordWrap(True)
+        theme.apply_role(hint, TextRole.META)
+        layout.addWidget(hint)
+        self.create_regular_user.toggled.connect(self._toggle_regular_user)
         self.create_regular_user.setChecked(False)
-        for widget in (
-            self.user_name,
-            self.user_id,
-            self.user_short_code,
-            self.user_pin,
-        ):
-            widget.setEnabled(False)
+        self._toggle_regular_user(False)
         layout.addStretch()
         self.addPage(page)
 
     def _permissions_page(self) -> None:
         page, layout = self._page(
             "6. Oprávnění",
-            "Administrátor získá admin permissions. Zde nastavte běžného uživatele.",
+            "Nastavte oprávnění běžného uživatele. Administrátor má všechna "
+            "automaticky.",
         )
-        self.permission_list = QListWidget()
-        default_permissions = {
-            Permission.DINERS_VIEW,
-            Permission.CHIPS_VIEW,
-            Permission.ORDERS_VIEW,
-            Permission.ORDERS_CHANGE,
-        }
-        for permission in Permission:
-            if permission.value.startswith("admin."):
-                continue
-            item = QListWidgetItem(permission.value)
-            item.setData(Qt.UserRole, permission)
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(
-                Qt.Checked if permission in default_permissions else Qt.Unchecked
-            )
-            self.permission_list.addItem(item)
+        note = QLabel(
+            "Oprávnění říká, co smí uživatel v JLL použít. "
+            "Některé zápisy mohou být i při oprávnění blokované, "
+            "dokud není ověřen databázový kontrakt."
+        )
+        note.setWordWrap(True)
+        theme.apply_role(note, TextRole.META)
+        layout.addWidget(note)
+        self.permission_list = permission_list_widget(
+            defaults=DEFAULT_OPERATOR_PERMISSIONS,
+            include_admin=False,
+        )
         layout.addWidget(self.permission_list)
         self.addPage(page)
 
     def _summary_page(self) -> None:
         page, layout = self._page(
             "7. Souhrn",
-            "Potvrzením se setup uloží atomicky. Produkční DB není povolena.",
+            "Kontrola před uložením. Produkční databáze není povolena.",
         )
         self.summary = QLabel()
         self.summary.setWordWrap(True)
+        theme.apply_role(self.summary, TextRole.BODY)
         layout.addWidget(self.summary)
         layout.addStretch()
         self.addPage(page)
 
+    def _toggle_subject_override(self, enabled: bool) -> None:
+        self.site_name.setReadOnly(not enabled)
+        if enabled:
+            self.site_name.setFocus()
+
+    def _toggle_regular_user(self, enabled: bool) -> None:
+        for widget in (
+            self.user_name,
+            self.user_short_code,
+            self.user_pin,
+        ):
+            widget.setEnabled(enabled)
+
     def _invalidate_database_probe(self) -> None:
         self.database_probe = None
         self.database_status.setText("Spojení zatím nebylo ověřeno.")
+        self.database_status.setProperty("tone", None)
+        theme.repolish(self.database_status)
 
     def _test_database(self) -> None:
         self.test_database_button.setEnabled(False)
@@ -265,48 +335,13 @@ class SetupWizard(QWizard):
         values: tuple[str, str, str, str, str],
     ) -> DatabaseProbe:
         raw_host, raw_port, database, user, password = values
-        host = raw_host.lower().strip("[]")
-        if host not in {"localhost", "127.0.0.1", "::1"}:
-            raise ValueError("Setup povoluje pouze loopback host.")
-        if not database.startswith("jll_"):
-            raise ValueError("LAB databáze musí začínat jll_.")
-        parameters: dict[str, object] = {
-            "host": host,
-            "port": int(raw_port),
-            "dbname": database,
-            "user": user,
-            "connect_timeout": 5,
-            "autocommit": True,
-        }
-        if password:
-            parameters["password"] = password
-        with psycopg.connect(**parameters) as connection:
-            identity = connection.execute(
-                """
-                SELECT current_database(), host(inet_server_addr()),
-                       (SELECT system_identifier::text FROM pg_control_system())
-                """
-            ).fetchone()
-            if identity is None:
-                raise ValueError("Identitu databáze nelze načíst.")
-            if (
-                identity[0] != database
-                or not ipaddress.ip_address(identity[1]).is_loopback
-            ):
-                raise ValueError("Připojená databáze není lokální LAB.")
-            rows = connection.execute(
-                """
-                SELECT DISTINCT btrim(kategorie)
-                FROM public.stravnik
-                WHERE stav = 'A' AND COALESCE(deleted, false) = false
-                  AND kategorie IS NOT NULL
-                ORDER BY btrim(kategorie)
-                """
-            ).fetchall()
-        categories = tuple(str(row[0]) for row in rows if str(row[0]).strip())
-        if not categories:
-            raise ValueError("Databáze neobsahuje volitelné kategorie.")
-        return DatabaseProbe(str(identity[2]), categories)
+        return probe_lab_database(
+            raw_host,
+            int(raw_port),
+            database,
+            user,
+            password,
+        )
 
     def _database_verified(
         self,
@@ -325,18 +360,68 @@ class SetupWizard(QWizard):
             self.db_password.text(),
         )
         if current_values != self._pending_database_values:
-            self.database_status.setText("Údaje se změnily; otestujte spojení znovu.")
+            self.database_status.setText(
+                "Údaje se změnily; otestujte spojení znovu."
+            )
             return
         self.database_probe = result
-        self.database_status.setText(
-            f"LAB databáze ověřena. System ID: {result.system_identifier[:8]}…"
+        if result.subject_name:
+            self.site_name.setText(result.subject_name)
+            self.site_name.setReadOnly(True)
+            self.subject_override.setChecked(False)
+            self.subject_override.setEnabled(False)
+            self.database_status.setText(
+                f"Databáze ověřena.\nProvozovna: {result.subject_name}"
+            )
+            self.database_status.setProperty("tone", "ordered")
+        else:
+            self.site_name.clear()
+            self.site_name.setReadOnly(False)
+            self.subject_override.setChecked(True)
+            self.subject_override.setEnabled(True)
+            self.database_status.setText(
+                "Databáze ověřena, ale chybí název provozovny.\n"
+                + SUBJECT_MISSING_TEXT
+            )
+            self.database_status.setProperty("tone", "danger")
+        theme.repolish(self.database_status)
+        self._fill_stations(result.stations)
+        self._fill_categories(result.categories)
+
+    def _fill_stations(self, stations: tuple[StationOption, ...]) -> None:
+        self.station_combo.clear()
+        preferred = (
+            self.initial_config.instance_id.upper()
+            if self.initial_config
+            else ""
         )
+        usable = [item for item in stations if item.usable_as_instance_id]
+        if not usable:
+            self.station_combo.addItem(
+                "V databázi nejsou použitelné stanice",
+                None,
+            )
+            self.station_combo.setEnabled(False)
+            return
+        self.station_combo.setEnabled(True)
+        selected_index = 0
+        for index, station in enumerate(usable):
+            self.station_combo.addItem(station.name, station.name)
+            if preferred and station.name == preferred:
+                selected_index = index
+        self.station_combo.setCurrentIndex(selected_index)
+
+    def _fill_categories(self, categories: tuple[str, ...]) -> None:
         self.categories.clear()
-        selected = self.initial_config.allowed_categories if self.initial_config else set()
-        for category in result.categories:
+        selected = (
+            self.initial_config.allowed_categories if self.initial_config else set()
+        )
+        for category in categories:
             item = QListWidgetItem(category)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked if category in selected else Qt.Unchecked)
+            item.setCheckState(
+                Qt.Checked if category in selected else Qt.Unchecked
+            )
             self.categories.addItem(item)
 
     def _database_failed(
@@ -348,7 +433,16 @@ class SetupWizard(QWizard):
         self.test_database_button.setEnabled(True)
         self.database_probe = None
         self.database_status.setText("Ověření selhalo.")
-        QMessageBox.warning(self, "Databázi nelze ověřit", str(error))
+        self.database_status.setProperty("tone", "danger")
+        theme.repolish(self.database_status)
+        message = (
+            str(error)
+            if isinstance(error, ValueError)
+            else "Databázi se nepodařilo ověřit. Zkontrolujte údaje a zkuste to znovu."
+        )
+        if not isinstance(error, ValueError):
+            logger.exception("Setup database probe failed: %s", error)
+        QMessageBox.warning(self, "Databázi nelze ověřit", message)
 
     def selected_categories(self) -> frozenset[str]:
         return frozenset(
@@ -358,67 +452,94 @@ class SetupWizard(QWizard):
         )
 
     def selected_permissions(self) -> frozenset[Permission]:
-        return frozenset(
-            self.permission_list.item(index).data(Qt.UserRole)
-            for index in range(self.permission_list.count())
-            if self.permission_list.item(index).checkState() == Qt.Checked
-        )
+        return selected_permissions_from_list(self.permission_list)
+
+    def selected_station(self) -> str | None:
+        data = self.station_combo.currentData()
+        return str(data) if data else None
 
     def validateCurrentPage(self) -> bool:
         page_id = self.currentId()
         try:
             if page_id == self.PAGE_DATABASE and self.database_probe is None:
                 raise ValueError("Nejprve úspěšně otestujte databázi.")
-            if page_id == self.PAGE_INSTANCE:
+            if page_id == self.PAGE_STATION:
                 if not self.site_name.text().strip():
-                    raise ValueError("Název provozovny nesmí být prázdný.")
-                for value in (self.site_id.text(), self.instance_id.text()):
-                    if not IDENTIFIER_PATTERN.fullmatch(value.strip()):
-                        raise ValueError("Site ID a instance ID nemají platný formát.")
+                    raise ValueError(
+                        "Název provozovny chybí. Doplňte jej, nebo opravte "
+                        "parametr NameSubject v databázi."
+                    )
+                station = self.selected_station()
+                if not station:
+                    raise ValueError("Vyberte existující stanici.")
+                if not IDENTIFIER_PATTERN.fullmatch(station):
+                    raise ValueError(
+                        "Zvolená stanice nemá formát použitelný jako "
+                        "identita JLL stanice."
+                    )
             elif page_id == self.PAGE_CATEGORIES and not self.selected_categories():
                 raise ValueError("Vyberte alespoň jednu povolenou kategorii.")
             elif page_id == self.PAGE_ADMIN:
                 if self.admin_pin.text() != self.admin_pin_confirm.text():
                     raise ValueError("PIN administrátora se neshoduje.")
                 self._validate_user_fields(
-                    self.admin_id.text(),
                     self.admin_name.text(),
                     self.admin_short_code.text(),
                     self.admin_pin.text(),
                 )
             elif page_id == self.PAGE_USERS and self.create_regular_user.isChecked():
                 self._validate_user_fields(
-                    self.user_id.text(),
                     self.user_name.text(),
                     self.user_short_code.text(),
                     self.user_pin.text(),
                 )
+                if (
+                    self.user_short_code.text().strip().upper()
+                    == self.admin_short_code.text().strip().upper()
+                ):
+                    raise ValueError("Kód uživatele musí být unikátní.")
+            elif (
+                page_id == self.PAGE_PERMISSIONS
+                and self.create_regular_user.isChecked()
+                and not self.selected_permissions()
+            ):
+                raise ValueError(
+                    "Vyberte alespoň jedno oprávnění pro běžného uživatele."
+                )
             elif page_id == self.PAGE_SUMMARY:
                 self._complete_setup()
-        except Exception as exc:
+        except ValueError as exc:
             QMessageBox.warning(self, "Nastavení nelze dokončit", str(exc))
+            return False
+        except Exception:
+            logger.exception("Setup validation/complete failed")
+            QMessageBox.warning(self, "Nastavení nelze dokončit", SETUP_FAILED_TEXT)
             return False
         return super().validateCurrentPage()
 
     @staticmethod
-    def _validate_user_fields(
-        user_id: str,
-        name: str,
-        short_code: str,
-        pin: str,
-    ) -> None:
-        if not user_id.strip() or not name.strip() or not short_code.strip():
-            raise ValueError("Vyplňte identitu uživatele.")
+    def _validate_user_fields(name: str, short_code: str, pin: str) -> None:
+        if not name.strip():
+            raise ValueError("Vyplňte jméno uživatele.")
+        code = short_code.strip().upper()
+        if not IDENTIFIER_PATTERN.fullmatch(code):
+            raise ValueError(
+                "Kód uživatele musí mít 1–20 znaků (písmena, čísla, _ nebo -)."
+            )
         if len(pin) < 4:
             raise ValueError("PIN musí mít alespoň 4 znaky.")
 
     def _build_config(self) -> LabConfig:
         if self.database_probe is None:
             raise ValueError("Databáze není ověřena.")
+        station = self.selected_station()
+        if not station:
+            raise ValueError("Vyberte existující stanici.")
+        site_name = self.site_name.text().strip()
         return LabConfig(
-            site_name=self.site_name.text().strip(),
-            site_id=self.site_id.text().strip().upper(),
-            instance_id=self.instance_id.text().strip().upper(),
+            site_name=site_name,
+            site_id=derive_site_id(site_name),
+            instance_id=station,
             allowed_categories=self.selected_categories()
             or (
                 self.initial_config.allowed_categories
@@ -434,23 +555,48 @@ class SetupWizard(QWizard):
             business_timezone="Europe/Prague",
             strict_config_lock=True,
             search_limit=30,
+            reader_port=(
+                self.initial_config.reader_port if self.initial_config else None
+            ),
+            reader_baud_rate=(
+                self.initial_config.reader_baud_rate if self.initial_config else 19_200
+            ),
+            reader_line_end=(
+                self.initial_config.reader_line_end if self.initial_config else "\r"
+            ),
         )
 
     def _page_changed(self, page_id: int) -> None:
+        if page_id == self.PAGE_PERMISSIONS:
+            self.permission_list.setEnabled(self.create_regular_user.isChecked())
+            return
         if page_id != self.PAGE_SUMMARY:
             return
+        permissions_text = (
+            summarize_permissions(self.selected_permissions())
+            if self.create_regular_user.isChecked()
+            else "nevytváří se"
+        )
         regular = (
-            self.user_name.text().strip()
+            f"{self.user_name.text().strip()} ({self.user_short_code.text().strip().upper()})"
             if self.create_regular_user.isChecked()
             else "nevytváří se"
         )
         self.summary.setText(
-            f"Databáze: {self.db_host.text()}:{self.db_port.text()}/"
-            f"{self.db_name.text()}\n"
-            f"Provozovna: {self.site_name.text()} ({self.instance_id.text()})\n"
-            f"Kategorie: {', '.join(sorted(self.selected_categories()))}\n"
-            f"Admin: {self.admin_name.text()} ({self.admin_short_code.text()})\n"
-            f"Běžný uživatel: {regular}"
+            "Databáze\n"
+            f"{self.db_host.text()}:{self.db_port.text()} / {self.db_name.text()}\n\n"
+            "Provozovna\n"
+            f"{self.site_name.text().strip()}\n\n"
+            "Stanice\n"
+            f"{self.selected_station() or '—'}\n\n"
+            "Povolené kategorie\n"
+            f"{', '.join(sorted(self.selected_categories()))}\n\n"
+            "Administrátor\n"
+            f"{self.admin_name.text().strip()} ({self.admin_short_code.text().strip().upper()})\n\n"
+            "Běžný uživatel\n"
+            f"{regular}\n\n"
+            "Oprávnění běžného uživatele\n"
+            f"{permissions_text}"
         )
 
     def _complete_setup(self) -> None:
@@ -465,7 +611,7 @@ class SetupWizard(QWizard):
         admin_permissions = frozenset(Permission)
         users = [
             (
-                self.admin_id.text().strip(),
+                self._admin_user_id,
                 self.admin_name.text().strip(),
                 self.admin_short_code.text().strip().upper(),
                 self.admin_pin.text(),
@@ -475,7 +621,7 @@ class SetupWizard(QWizard):
         if self.create_regular_user.isChecked():
             users.append(
                 (
-                    self.user_id.text().strip(),
+                    self._regular_user_id,
                     self.user_name.text().strip(),
                     self.user_short_code.text().strip().upper(),
                     self.user_pin.text(),

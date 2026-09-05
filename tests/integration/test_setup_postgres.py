@@ -11,6 +11,7 @@ from jll.gui.app import build_window
 from jll.gui.setup_wizard import SetupWizard
 from jll.identity_store import IdentityStore
 from jll.policy import Permission
+from jll.setup_probe import derive_site_id
 
 pytestmark = pytest.mark.integration
 
@@ -39,17 +40,21 @@ def test_setup_wizard_persists_verified_lab_and_hashed_admin(
         )
     )
     assert probe.system_identifier == lab_database.system_identifier
+    assert probe.stations, "LAB DB musí obsahovat alespoň jednu stanici"
     wizard.database_probe = probe
+    if probe.subject_name:
+        wizard.site_name.setText(probe.subject_name)
+    else:
+        wizard.site_name.setText("Integration LAB")
+        wizard.subject_override.setChecked(True)
+    wizard._fill_stations(probe.stations)
+    wizard._fill_categories(probe.categories)
     wizard.categories.clear()
     first_category = QListWidgetItem(probe.categories[0])
     first_category.setFlags(first_category.flags() | Qt.ItemIsUserCheckable)
     first_category.setCheckState(Qt.Checked)
     wizard.categories.addItem(first_category)
-    wizard.site_name.setText("Integration LAB")
-    wizard.site_id.setText("INT")
-    wizard.instance_id.setText("INT-LAB01")
     wizard.admin_name.setText("Integration Admin")
-    wizard.admin_id.setText("admin")
     wizard.admin_short_code.setText("ADM")
     wizard.admin_pin.setText("2468")
     wizard.admin_pin_confirm.setText("2468")
@@ -59,17 +64,24 @@ def test_setup_wizard_persists_verified_lab_and_hashed_admin(
     config = load_lab_config(config_path)
     assert config.database == lab_database.name
     assert config.allowed_categories == frozenset({probe.categories[0]})
+    assert config.instance_id == wizard.selected_station()
+    assert config.site_name == wizard.site_name.text().strip()
+    assert config.site_id == derive_site_id(config.site_name)
     store = IdentityStore(identity_path)
-    admin = store.authenticate("admin", "2468")
+    admin = store.authenticate(wizard._admin_user_id, "2468")
     assert Permission.ADMIN_USERS in admin.permissions
+    assert admin.user_id.startswith("usr_")
     assert "2468" not in identity_path.read_text(encoding="utf-8")
+    if probe.subject_name:
+        assert config.site_name == probe.subject_name
 
-    window = build_window(config_path, identity_path, "admin")
+    window = build_window(config_path, identity_path, wizard._admin_user_id)
     qtbot.addWidget(window)
     window.show()
     qtbot.waitUntil(lambda: window.search_edit.isEnabled(), timeout=5_000)
     qtbot.waitUntil(lambda: window.results.rowCount() > 0, timeout=5_000)
     assert "Integration Admin" in window.user_label.text()
     assert window.admin_button.isEnabled()
+    assert "bezpečnostně blokována" in window.edit_diner_button.toolTip()
     window.close()
     window.connection_pool.close()

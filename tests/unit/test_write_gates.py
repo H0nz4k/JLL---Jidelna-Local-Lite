@@ -29,7 +29,9 @@ def test_phase_3a_diner_write_gates_are_fail_closed() -> None:
 
 
 def test_non_proven_gate_cannot_be_used_as_write_authorization() -> None:
-    with pytest.raises(WriteContractNotProven, match="PARTIAL"):
+    with pytest.raises(WriteContractNotProven, match="bezpečnostně blokována"):
         require_proven(CHIP_WRITE_GATES, "assign")
-    with pytest.raises(WriteContractNotProven, match="BLOCKED"):
+    with pytest.raises(WriteContractNotProven, match="Upravit strávníka"):
         require_proven(DINER_WRITE_GATES, "edit_personal")
+    assert CHIP_WRITE_GATES["assign"].status is ContractStatus.PARTIAL
+    assert DINER_WRITE_GATES["edit_personal"].status is ContractStatus.BLOCKED

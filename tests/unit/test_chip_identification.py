@@ -387,7 +387,7 @@ def test_identify_button_explains_missing_reader(qtbot: Any) -> None:
     window._refresh_policy()
     assert window.identify_chip_button.isVisible()
     assert not window.identify_chip_button.isEnabled()
-    assert "Čtečka není nakonfigurována" in (
+    assert "Čtečka není nastavena" in (
         window.identify_chip_button.toolTip()
     )
 

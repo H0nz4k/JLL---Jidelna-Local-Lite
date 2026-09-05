@@ -47,16 +47,26 @@ Environment variable `JLL_LAB_DB_PASSWORD` zůstává LAB alternativou.
 Pokud chybí platný identity store, aplikace otevře sedm kroků:
 
 1. databáze a read-only test spojení;
-2. provozovna / stabilní instance;
+2. provozovna (z `public.parametry` / `BACKUP` / `NameSubject`) a stanice
+   (výběr z `public.stanice.nazev`, legacy `STANICE`);
 3. DB-načtené povolené kategorie;
-4. první administrátor;
+4. první administrátor (jméno, kód uživatele, PIN);
 5. volitelný běžný uživatel;
-6. konkrétní permissions;
-7. souhrn.
+6. oprávnění běžného uživatele v češtině a skupinách;
+7. lidský souhrn.
 
 Wizard povoluje pouze loopback host, databázi `jll_*`, ověřenou skutečnou
 loopback adresu a ukládá skutečný PostgreSQL `system_identifier`. Prázdný
 scope, neověřená DB, chybějící admin nebo neplatný PIN znamenají fail closed.
+
+`Site ID` a `User ID` se v běžném UI nezadávají:
+- `site_name` = název provozovny z DB;
+- `site_id` = interní odvození z názvu;
+- `instance_id` = zvolená stanice (`nazev`);
+- `user_id` = automatické `usr_<token>`.
+
+Založení nové stanice je fail-closed: kontrakt zápisu do `public.stanice`
+není v JLL doložen, proto je `+ Nová stanice` disabled.
 
 Pokud identity již existují, ale instalační config je poškozený, wizard jej
 automaticky nepřepíše. Aplikace se zablokuje, aby neztratila vazbu na
@@ -109,6 +119,12 @@ Formát je validován vůči délce `public.udalosti.uzivatel`. Actor,
 `allowed_categories` a `client_version` nevyrábí GUI.
 
 ## 6. Permissions
+
+Interní permission názvy zůstávají (`diners.view`, …). Běžné GUI zobrazuje
+české názvy a skupiny z `permission_catalog.py` (např. „Zobrazit
+strávníky“). Oprávnění ≠ write gate: i s právem může být tlačítko
+disabled, dokud není ověřen DB zápis (`DINER_WRITE_GATES` /
+`CHIP_WRITE_GATES`).
 
 Implementované permission názvy zahrnují:
 

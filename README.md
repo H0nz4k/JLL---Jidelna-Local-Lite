@@ -96,7 +96,10 @@ se nekopíruje do repozitáře.
 ### Setup / Login / Admin
 
 - First-run Setup Wizard vytvoří LAB konfiguraci a prvního admina.
+- Provozovna se načte z databáze (`NameSubject`); stanice se vybírá
+  z `public.stanice` (legacy STANICE).
 - Login proti lokálnímu identity store s argon2 hashem PINu.
+- Oprávnění v GUI jsou česky; `User ID` a `Site ID` hospodářka nezadává.
 - Administrace vyžaduje opětovné ověření PINem a auditované operace.
 
 ## Bezpečnostní model

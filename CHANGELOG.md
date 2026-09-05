@@ -6,11 +6,39 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
-Noční mise: čtečka, identifikace čipu, detailní karta strávníka, denní
-sestavy a vizuální stav výdeje. Bez nového tagu; canonical verze zůstává
-`0.1.0` do ranního review.
+FÁZE 3E: setup / stanice / identity / české oprávnění a UX cleanup před
+merge noční branche. Bez nového tagu; canonical verze zůstává `0.1.0`.
 
 ### Added
+
+- Katalog českých oprávnění (`permission_catalog.py`) se skupinami a
+  popisy; běžné GUI už nezobrazuje `diners.view` ani podobné identifikátory.
+- Setup načítá provozovnu z `public.parametry` (`BACKUP` / `NameSubject`) a
+  stanice z `public.stanice` (legacy `STANICE` = `nazev`).
+- Automatické interní `user_id` (`usr_<token>`); hospodářka zadává jen jméno,
+  kód uživatele a PIN.
+- Rozlišení oprávnění vs. write gate v tooltipech (bezpečnostně blokováno /
+  chybí oprávnění / čtečka není nastavena).
+
+### Changed
+
+- Setup Wizard: české tlačítka Zpět/Další/Dokončit, kompaktnější kroky,
+  lidský souhrn (Provozovna / Stanice / Kód uživatele).
+- `Instance ID` v běžném UI nahrazeno pojmem `Stanice`; `Site ID` a `User ID`
+  z běžného UI zmizely.
+- Write gate tooltips jsou česky a vysvětlují bezpečnostní blokaci zápisu.
+
+### Fixed
+
+- Setup Finish už nepadá na `'str' object has no attribute 'value'` při
+  ukládání oprávnění z Qt `UserRole`.
+- Neočekávané výjimky v setupu a adminu se logují; uživatel vidí lidskou
+  hlášku, ne Python traceback.
+
+Noční mise: čtečka, identifikace čipu, detailní karta strávníka, denní
+sestavy a vizuální stav výdeje.
+
+### Added (noční mise)
 
 - Administrace → Čtečka: výběr COM portu z OS enumerace, baudrate, ukončení
   řádku, stav zařízení a uložení ne-secret nastavení do instalační
@@ -34,7 +62,7 @@ sestavy a vizuální stav výdeje. Bez nového tagu; canonical verze zůstává
 - `OrderReadService.identify_chip`, `load_diner_profile`, `next_cooking_day`
   a `load_daily_report`; agregace sestav v `src/jll/reports.py`.
 
-### Changed
+### Changed (noční mise)
 
 - Stav výdeje má panelový vzhled s dominantní hodnotou `ZBÝVÁ`; dokončený
   řádek je odlišený zeleným pozadím z centrálního theme.

@@ -505,9 +505,9 @@ def test_order_actions_are_disabled_without_permission(qtbot: Any) -> None:
 def test_non_proven_chip_and_diner_writes_stay_disabled(qtbot: Any) -> None:
     window = build_window(qtbot, policy=session_policy(frozenset(Permission)))
     assert not window.new_diner_button.isEnabled()
-    assert "PARTIAL" in window.new_diner_button.toolTip()
+    assert "bezpečnostně blokována" in window.new_diner_button.toolTip()
     assert not window.edit_diner_button.isEnabled()
-    assert "BLOCKED" in window.edit_diner_button.toolTip()
+    assert "bezpečnostně blokována" in window.edit_diner_button.toolTip()
     assert all(
         not button.isEnabled()
         and button.property("contractStatus") in {"PARTIAL", "BLOCKED"}

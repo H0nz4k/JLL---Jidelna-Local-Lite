@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -18,6 +19,10 @@ SCHEMA_VERSION = 1
 USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,20}$")
 PIN_MIN_LENGTH = 4
 PIN_MAX_LENGTH = 128
+SHORT_CODE_HINT = (
+    "Krátké označení uživatele používané v historii změn, "
+    "např. VED, SUP nebo KUCH."
+)
 
 
 class IdentityStoreError(RuntimeError):
@@ -61,6 +66,21 @@ def create_password_hasher() -> PasswordHasher:
         salt_len=16,
         type=Type.ID,
     )
+
+
+def generate_user_id(*, existing: set[str] | frozenset[str] = frozenset()) -> str:
+    """Stabilní interní user_id nezávislé na jméně i kódu uživatele.
+
+    Formát `usr_<12 hex>` se vejde do `USER_ID_PATTERN` (max 20 znaků)
+    a nesmí se odvozovat z display_name.
+    """
+
+    taken = {item.casefold() for item in existing}
+    for _ in range(64):
+        candidate = f"usr_{secrets.token_hex(6)}"
+        if candidate.casefold() not in taken:
+            return candidate
+    raise IdentityStoreError("Nepodařilo se vygenerovat unikátní user_id.")
 
 
 class IdentityStore:

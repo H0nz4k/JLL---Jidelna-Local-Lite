@@ -66,6 +66,7 @@ from ..read_service import OrderReadService
 from ..session import SessionManager
 from ..version import application_version, audit_client_version
 from ..write_gates import CHIP_WRITE_GATES, DINER_WRITE_GATES
+from ..permission_catalog import missing_permission_text, permission_title
 from . import theme
 from .admin_dialog import AdminDialog
 from .chip_dialog import ChipReadDialog
@@ -652,6 +653,34 @@ class MainWindow(QMainWindow):
             else self.application_service.policy
         )
 
+    def _apply_write_gated_button(
+        self,
+        button: QPushButton,
+        *,
+        permission: Permission,
+        gate,
+        policy,
+    ) -> None:
+        """Rozliší chybějící oprávnění od bezpečnostního write gate."""
+
+        has_permission = permission in policy.permissions
+        button.setVisible(has_permission)
+        if not has_permission:
+            button.setEnabled(False)
+            button.setToolTip(missing_permission_text(permission))
+            button.setProperty("gateBadge", None)
+            return
+        button.setEnabled(False)
+        if gate.enabled:
+            button.setToolTip(gate.tooltip)
+            button.setProperty("gateBadge", None)
+        else:
+            button.setToolTip(gate.tooltip)
+            button.setProperty("gateBadge", gate.badge)
+            if gate.badge and gate.badge not in button.text():
+                # Zachovej původní text; badge je jen v tooltipu/property.
+                pass
+
     def _refresh_policy(self) -> None:
         try:
             policy = self._current_policy()
@@ -680,8 +709,18 @@ class MainWindow(QMainWindow):
         self.edit_diner_button.setVisible(
             Permission.DINERS_EDIT in policy.permissions
         )
-        self.new_diner_button.setEnabled(False)
-        self.edit_diner_button.setEnabled(False)
+        self._apply_write_gated_button(
+            self.new_diner_button,
+            permission=Permission.DINERS_CREATE,
+            gate=DINER_WRITE_GATES["create"],
+            policy=policy,
+        )
+        self._apply_write_gated_button(
+            self.edit_diner_button,
+            permission=Permission.DINERS_EDIT,
+            gate=DINER_WRITE_GATES["edit_personal"],
+            policy=policy,
+        )
         self.card_button.setVisible(Permission.DINERS_VIEW in policy.permissions)
         self.card_button.setEnabled(
             self._lab_guard_verified
@@ -697,15 +736,37 @@ class MainWindow(QMainWindow):
             and Permission.CHIPS_VIEW in policy.permissions
             and reader_available
         )
-        if not reader_available:
+        if Permission.CHIPS_VIEW not in policy.permissions:
             self.identify_chip_button.setToolTip(
-                "Čtečka není nakonfigurována. Nastavení je v Administraci."
+                missing_permission_text(Permission.CHIPS_VIEW)
             )
+        elif not reader_available:
+            self.identify_chip_button.setToolTip(
+                "Čtečka není nastavena. Nastavení je v Administraci."
+            )
+        else:
+            self.identify_chip_button.setToolTip(
+                "Načte čip ze čtečky a otevře kartu jeho vlastníka"
+            )
+        chip_ops = {
+            Permission.CHIPS_ASSIGN: "assign",
+            Permission.CHIPS_RETURN: "return",
+            Permission.CHIPS_BLOCK: "block",
+            Permission.CHIPS_LOST: "lost",
+        }
         for permission, button in self.chip_action_buttons.items():
+            gate = CHIP_WRITE_GATES[chip_ops[permission]]
             button.setVisible(permission in policy.permissions)
-            button.setEnabled(False)
+            self._apply_write_gated_button(
+                button,
+                permission=permission,
+                gate=gate,
+                policy=policy,
+            )
         self.diag_permissions.setText(
-            ", ".join(sorted(permission.value for permission in policy.permissions))
+            ", ".join(
+                sorted(permission_title(permission) for permission in policy.permissions)
+            )
         )
         can_view = Permission.DINERS_VIEW in policy.permissions
         self.search_edit.setEnabled(can_view and self._lab_guard_verified)
