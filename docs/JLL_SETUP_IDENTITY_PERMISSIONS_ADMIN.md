@@ -1,5 +1,24 @@
 # JLL – Setup, identita, permissions a administrace
 
+## 0. Flet cíl (noční migrace)
+
+Nový Flet setup (`tools/run_jll_flet_lab.sh`) **nepoužívá PIN**:
+
+1. Databáze  
+2. Provozovna a stanice  
+3. Povolené kategorie  
+4. Heslo administrátora SUP  
+5. Souhrn  
+
+Default business user = `VED` z `public.uzivatel` (bez loginu).  
+SUP secret je JLL Argon2id hash (keyring / `config/secrets`), oddělený od
+`public.uzivatel.heslo`.  
+
+Reset lokálního first-run: `tools/reset_jll_first_run.sh` (nikdy nemaže DB).  
+Detaily: `docs/JLL_FLET_ARCHITECTURE.md`.
+
+PySide6 Setup Wizard níže zůstává referenční (stále PIN model).
+
 ## 1. Rozsah FÁZE 2B
 
 Tato implementace vytváří LAB foundation pro:

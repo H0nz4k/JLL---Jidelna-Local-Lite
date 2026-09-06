@@ -1,5 +1,9 @@
 # JLL – PySide6 LAB GUI
 
+> **Cílová prezentační vrstva je Flet** (`docs/JLL_FLET_ARCHITECTURE.md`,
+> `tools/run_jll_flet_lab.sh`). Tento dokument popisuje referenční/fallback
+> PySide6 klienta (`tools/run_jll_lab.sh`), který zůstává v repozitáři.
+
 ## 1. Stav a účel
 
 První nativní Windows GUI je funkční vertikální řez správcovského klienta

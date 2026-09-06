@@ -6,10 +6,20 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+### Added
+
+- Flet desktop UI jako cílová prezentační vrstva (`src/jll/flet_ui/`,
+  `tools/run_jll_flet_lab.sh`); PySide6 zůstává referenční fallback.
+- Business session bez PINu: default VED, přepínač DB uživatelů,
+  SUP admin secret (`sup_secret.py`, `legacy_users.py`, `business_session.py`).
+- Setup wizard ve Fletu (DB → provozovna/stanice → kategorie → SUP heslo).
+- `tools/reset_jll_first_run.sh` pro bezpečný reset lokálního first-run stavu.
+- Dokumentace `docs/JLL_FLET_ARCHITECTURE.md`.
+
 FÁZE 3E: setup / stanice / identity / české oprávnění a UX cleanup před
 merge noční branche. Bez nového tagu; canonical verze zůstává `0.1.0`.
 
-### Added
+### Added (3E)
 
 - Katalog českých oprávnění (`permission_catalog.py`) se skupinami a
   popisy; běžné GUI už nezobrazuje `diners.view` ani podobné identifikátory.

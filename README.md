@@ -1,8 +1,8 @@
 # JLL – JidelnaLocalLite
 
 Lokální nativní Windows správcovský klient pro jídelnu nad centrální
-PostgreSQL databází. JLL je psaný v Pythonu s PySide6 (Qt Widgets) a je
-určený pro běžnou denní práci hospodářky nebo vedoucí jídelny.
+PostgreSQL databází. JLL je psaný v Pythonu; **cílová prezentační vrstva je
+Flet**, PySide6 (Qt Widgets) zůstává jako referenční/fallback GUI.
 
 ```text
 LAB REŽIM: POVOLEN
@@ -16,7 +16,7 @@ zkontroluje jeho stav a bezpečně provede přihlášku, změnu menu nebo
 odhlášku. Výchozí workflow je:
 
 ```text
-login
+VED (bez PINu)
 → seznam strávníků
 → karta strávníka
 → přihlášky / odhlášky / informace / čipy / sestavy
@@ -158,18 +158,29 @@ sémantické barvy).
 Primární shell je Git Bash / MINGW64.
 
 ```bash
-py -3.11 -m venv .venv
+py -3.12 -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -e ".[test]"
 cp config/lab.example.json config/lab.json
-./tools/run_jll_lab.sh
+./tools/run_jll_flet_lab.sh   # cílové Flet desktop UI
+./tools/run_jll_lab.sh        # referenční PySide6 UI
 ```
 
 `config/lab.json` a `config/users.lab.json` nejsou v repozitáři; konkrétní
 instalaci vytvoří Setup Wizard nebo vlastní kopie příkladového configu.
 
+Architektura Flet UI: `docs/JLL_FLET_ARCHITECTURE.md`.
+
+Reset first-run (ne DB):
+
+```bash
+./tools/reset_jll_first_run.sh --dry-run
+./tools/reset_jll_first_run.sh --yes
+```
+
 Pouze preflight bez otevření GUI:
 
 ```bash
+./tools/run_jll_flet_lab.sh --probe-only
 ./tools/run_jll_lab.sh --probe-only
 ```
 
@@ -203,10 +214,11 @@ revize kontraktu.
 ```text
 src/jll/          aplikační a service vrstva
 src/jll/orders/   objednávkový backend, audit a preflight
-src/jll/gui/      PySide6 GUI, theme a workery
+src/jll/flet_ui/  cílové Flet desktop UI
+src/jll/gui/      referenční PySide6 GUI, theme a workery
 tests/unit/       unit a GUI testy
 tests/integration/ testy proti jednorázové LAB databázi
-tools/            Git Bash utility (launcher, testy, restore)
+tools/            Git Bash utility (launcher, testy, restore, reset)
 docs/             technická dokumentace a kontrakty
 config/           příkladový LAB config bez secrets
 ```
