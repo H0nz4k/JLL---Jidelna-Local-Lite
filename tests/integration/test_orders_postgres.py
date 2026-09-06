@@ -725,12 +725,13 @@ def test_core_return_one_without_change_is_detected(
 ) -> None:
     monkeypatch.setattr(OrderRepository, "call_plus", lambda *_args: 1)
 
+    before = state(lab_database, OBED_A)
     assert_error(
         ErrorCode.POSTCONDITION_FAILED,
         lambda: service(lab_database).execute(order()),
     )
 
-    assert state(lab_database, OBED_A) == "S"
+    assert state(lab_database, OBED_A) == before
 
 
 @pytest.mark.integration
@@ -866,11 +867,12 @@ def test_invalid_use_pricelist_parameter_is_fail_closed(
                 (None if mode == "null" else "unexpected",),
             )
 
+    before = state(lab_database, OBED_A)
     assert_error(
         ErrorCode.PRICE_INVALID,
         lambda: service(lab_database).execute(order()),
     )
-    assert state(lab_database, OBED_A) == "S"
+    assert state(lab_database, OBED_A) == before
 
 
 @pytest.mark.integration
@@ -879,6 +881,7 @@ def test_null_monthly_order_finance_is_fail_closed(
     lab_database: LabDatabase,
     column: str,
 ) -> None:
+    before = state(lab_database, OBED_A)
     with lab_database.connect() as connection:
         connection.execute(
             sql.SQL(
@@ -899,7 +902,7 @@ def test_null_monthly_order_finance_is_fail_closed(
         ErrorCode.POSTCONDITION_FAILED,
         lambda: service(lab_database).execute(order()),
     )
-    assert state(lab_database, OBED_A) == "S"
+    assert state(lab_database, OBED_A) == before
 
 
 @pytest.mark.integration
@@ -1068,6 +1071,7 @@ def test_concurrent_a_to_b_and_a_to_c_keep_exclusion_invariant(
 def test_category_changed_while_waiting_is_revalidated(
     lab_database: LabDatabase,
 ) -> None:
+    before = state(lab_database, OBED_A)
     blocker = lab_database.connect(autocommit=False)
     blocker.execute(
         "SELECT pg_advisory_xact_lock(%s)",
@@ -1097,7 +1101,7 @@ def test_category_changed_while_waiting_is_revalidated(
     assert len(result) == 1
     assert isinstance(result[0], OrderBusinessError)
     assert result[0].code is ErrorCode.OUT_OF_SCOPE_OR_INACTIVE
-    assert state(lab_database, OBED_A) == "S"
+    assert state(lab_database, OBED_A) == before
 
 
 @pytest.mark.integration
