@@ -56,8 +56,13 @@ def test_theme_exposes_exactly_four_roles() -> None:
 def test_theme_scales_all_roles() -> None:
     normal = {role: theme.role_size(role, theme.TextScale.NORMAL) for role in theme.TextRole}
     large = {role: theme.role_size(role, theme.TextScale.LARGE) for role in theme.TextRole}
+    huge = {role: theme.role_size(role, theme.TextScale.HUGE) for role in theme.TextRole}
     for role in theme.TextRole:
         assert large[role] > normal[role]
+        assert huge[role] > large[role]
+    assert theme.TextScale.HUGE.label_cs == "150 %"
+    assert theme.COLORS["today_column"]
+    assert theme.COLORS["today_column_border"]
 
 
 def test_navigation_routes() -> None:

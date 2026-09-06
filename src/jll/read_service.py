@@ -1274,6 +1274,17 @@ class OrderReadService:
             [item.typstravy for item in meal_types],
             target,
         )
+        # Jen typy stravy, pro které má kategorie platnou sazbu (jinak např. Oběd-D
+        # u 3JARO v legacy GUI vůbec není).
+        loaded_types = [
+            (item, order)
+            for item, order in loaded_types
+            if item.typstravy in allowed_menus
+        ]
+        meal_types = [item for item, _order in loaded_types]
+        display_orders = [order for _item, order in loaded_types]
+        if not meal_types:
+            return ()
         day_identifiers = sql.SQL(", ").join(
             sql.Identifier(column) for column in DAY_COLUMNS
         )

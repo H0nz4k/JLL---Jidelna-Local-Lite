@@ -7,6 +7,14 @@ from enum import Enum
 
 
 class TextRole(Enum):
+    """Role textu v UI.
+
+    PRIMARY – nadpis (jméno strávníka, název obrazovky)
+    ACTION  – tlačítka, aktivní popisky, záložky
+    BODY    – běžné hodnoty a řádky seznamů
+    META    – info, pomocný text, mřížka, ceny
+    """
+
     PRIMARY = "PRIMARY"
     BODY = "BODY"
     ACTION = "ACTION"
@@ -14,9 +22,17 @@ class TextRole(Enum):
 
 
 class TextScale(Enum):
+    """Zvětšení textu (a odvozených výšek buněk/tlačítek přes role_size)."""
+
     NORMAL = 1.0
     LARGE = 1.15
     EXTRA_LARGE = 1.3
+    HUGE = 1.5
+
+    @property
+    def label_cs(self) -> str:
+        pct = int(round(self.value * 100))
+        return f"{pct} %"
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +61,8 @@ COLORS: dict[str, str] = {
     "accent_soft": "#D9EAF7",
     "selected": "#C8DFF2",
     "today": "#FBF3D6",
+    "today_column": "#FFE08A",
+    "today_column_border": "#1E5A84",
     "ordered": "#D7F0DF",
     "ordered_selected": "#A9DDB8",
     "subscribed": "#B7C4BE",
@@ -72,9 +90,30 @@ WINDOW_WIDTH = 1366
 WINDOW_HEIGHT = 768
 BLOCK_BORDER_WIDTH = 2
 
+_active_scale: TextScale = TextScale.NORMAL
 
-def role_size(role: TextRole, scale: TextScale = TextScale.NORMAL) -> float:
-    return round(BASE_ROLES[role].size * scale.value, 2)
+
+def set_active_scale(scale: TextScale) -> None:
+    """Nastaví aktivní velikost textu pro `role_size` / `scaled`."""
+
+    global _active_scale
+    _active_scale = scale
+
+
+def get_active_scale() -> TextScale:
+    return _active_scale
+
+
+def role_size(role: TextRole, scale: TextScale | None = None) -> float:
+    active = _active_scale if scale is None else scale
+    return round(BASE_ROLES[role].size * active.value, 2)
+
+
+def scaled(base: float, scale: TextScale | None = None) -> float:
+    """Škáluje pevnou velikost (výška buňky, ikona, padding)."""
+
+    active = _active_scale if scale is None else scale
+    return round(base * active.value, 2)
 
 
 def assert_four_roles() -> tuple[str, ...]:

@@ -6,6 +6,26 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.2.1] – 2026-09-07
+
+Flet UX patch: velikost textu bez zoomu okna, sloupec „dnes“, kompaktní
+Administrace a skrytí typů stravy bez sazby kategorie.
+
+### Changed
+
+- Canonical verze `0.2.1`.
+- Administrace → Vzhled: „Velikost textu“ škáluje `role_size` / `scaled`
+  (ne `ft.Scale` celého okna).
+- Administrace: sekce Info sloučí Databáze + Stanice + Audit; kompaktnější
+  navigace a řádky.
+- Kalendář strávníka: silné zvýraznění sloupce jen při zobrazení
+  skutečného serverového dneška.
+
+### Fixed
+
+- Typy stravy bez platné sazby pro kategorii strávníka se v měsíční mřížce
+  a jídelníčku nezobrazují (např. Oběd-D u `3JARO`).
+
 ## [0.2.0] – 2026-09-07
 
 Flet desktop UX pro vedoucí kuchyně: layout, sestavy, výdej, SUP modal,

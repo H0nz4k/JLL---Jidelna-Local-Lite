@@ -16,10 +16,8 @@ SECTIONS = (
     "Uživatelé",
     "Oprávnění",
     "Kategorie",
-    "Databáze",
-    "Stanice",
+    "Info",
     "Čtečka",
-    "Audit",
     "Vzhled",
 )
 
@@ -31,12 +29,19 @@ class AdminScreen:
         self.vm = AdminViewModel(state)
         self.on_text_scale = on_text_scale
         self.section = "Uživatelé"
-        self.body = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO)
-        self.nav = ft.Column(spacing=4)
+        self.body = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=6, tight=False)
+        self.nav = ft.Column(spacing=0, tight=True)
         for name in SECTIONS:
             self.nav.controls.append(
-                ft.TextButton(
-                    name,
+                ft.Container(
+                    content=ft.Text(
+                        name,
+                        size=theme.role_size(theme.TextRole.ACTION),
+                        color=theme.COLORS["accent"],
+                    ),
+                    padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                    border_radius=4,
+                    ink=True,
                     on_click=lambda _e, n=name: self._open_section(n),
                 )
             )
@@ -51,7 +56,7 @@ class AdminScreen:
                     [
                         ft.Container(
                             content=self.nav,
-                            width=180,
+                            width=140,
                             bgcolor=theme.COLORS["surface"],
                             padding=theme.SPACING["sm"],
                             border=ft.border.all(
@@ -63,7 +68,7 @@ class AdminScreen:
                             content=self.body,
                             expand=True,
                             bgcolor=theme.COLORS["surface"],
-                            padding=theme.SPACING["lg"],
+                            padding=theme.SPACING["md"],
                             border=ft.border.all(
                                 theme.BLOCK_BORDER_WIDTH, theme.COLORS["block_border"]
                             ),
@@ -72,10 +77,11 @@ class AdminScreen:
                     ],
                     expand=True,
                     spacing=theme.SPACING["md"],
+                    vertical_alignment=ft.CrossAxisAlignment.START,
                 ),
             ],
             expand=True,
-            spacing=theme.SPACING["md"],
+            spacing=theme.SPACING["sm"],
         )
         # SUP se ověřuje modalem v app.py před vstupem; tady už jen obsah.
         self._open_section("Uživatelé")
@@ -106,24 +112,8 @@ class AdminScreen:
             self.body.controls.append(
                 ft.Text(", ".join(cats) or "—", size=theme.role_size(theme.TextRole.BODY))
             )
-        elif name == "Databáze":
-            cfg = self.state.config
-            self.body.controls.append(
-                ft.Text(
-                    f"{cfg.host}:{cfg.port} / {cfg.database}" if cfg else "—",
-                    size=theme.role_size(theme.TextRole.BODY),
-                )
-            )
-        elif name == "Stanice":
-            cfg = self.state.config
-            self.body.controls.append(
-                ft.Text(
-                    f"Provozovna: {cfg.site_name}\nStanice: {cfg.instance_id}"
-                    if cfg
-                    else "—",
-                    size=theme.role_size(theme.TextRole.BODY),
-                )
-            )
+        elif name == "Info":
+            self._render_info()
         elif name == "Čtečka":
             cfg = self.state.config
             self.body.controls.append(
@@ -134,16 +124,64 @@ class AdminScreen:
                     size=theme.role_size(theme.TextRole.BODY),
                 )
             )
-        elif name == "Audit":
-            events = self.state.identity_store.read_audit() if self.state.identity_store else []
-            for event in events[-50:]:
-                self.body.controls.append(
-                    ft.Text(
-                        f"{event.get('timestamp')} · {event.get('action')} · {event.get('target')}",
-                        size=theme.role_size(theme.TextRole.META),
-                    )
-                )
         self.page.update()
+
+    def _render_info(self) -> None:
+        cfg = self.state.config
+        self.body.controls.extend(
+            [
+                ft.Text(
+                    "Info",
+                    size=theme.role_size(theme.TextRole.ACTION),
+                    weight=ft.FontWeight.W_600,
+                ),
+                ft.Text(
+                    "Databáze",
+                    size=theme.role_size(theme.TextRole.META),
+                    weight=ft.FontWeight.W_700,
+                    color=theme.COLORS["text_secondary"],
+                ),
+                ft.Text(
+                    f"{cfg.host}:{cfg.port} / {cfg.database}" if cfg else "—",
+                    size=theme.role_size(theme.TextRole.BODY),
+                ),
+                ft.Text(
+                    "Stanice",
+                    size=theme.role_size(theme.TextRole.META),
+                    weight=ft.FontWeight.W_700,
+                    color=theme.COLORS["text_secondary"],
+                ),
+                ft.Text(
+                    f"Provozovna: {cfg.site_name}\nStanice: {cfg.instance_id}"
+                    if cfg
+                    else "—",
+                    size=theme.role_size(theme.TextRole.BODY),
+                ),
+                ft.Text(
+                    "Audit (posledních 50)",
+                    size=theme.role_size(theme.TextRole.META),
+                    weight=ft.FontWeight.W_700,
+                    color=theme.COLORS["text_secondary"],
+                ),
+            ]
+        )
+        events = self.state.identity_store.read_audit() if self.state.identity_store else []
+        if not events:
+            self.body.controls.append(
+                ft.Text(
+                    "Žádné auditní záznamy.",
+                    size=theme.role_size(theme.TextRole.META),
+                    color=theme.COLORS["text_secondary"],
+                )
+            )
+            return
+        for event in events[-50:]:
+            self.body.controls.append(
+                ft.Text(
+                    f"{event.get('timestamp')} · {event.get('action')} · {event.get('target')}",
+                    size=theme.role_size(theme.TextRole.META),
+                )
+            )
 
     def _render_sup_gate(self) -> None:
         password = ft.TextField(
@@ -360,22 +398,42 @@ class AdminScreen:
                     break
             count = len(profile.permissions) if profile is not None else 0
             self.body.controls.append(
-                ft.ListTile(
-                    title=ft.Text(
-                        f"{user.code} · {user.display_name}",
-                        size=theme.role_size(theme.TextRole.BODY),
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Column(
+                                [
+                                    ft.Text(
+                                        f"{user.code} · {user.display_name}",
+                                        size=theme.role_size(theme.TextRole.BODY),
+                                        weight=ft.FontWeight.W_600,
+                                    ),
+                                    ft.Text(
+                                        f"{count} oprávnění"
+                                        if profile
+                                        else "bez JLL profilu",
+                                        size=theme.role_size(theme.TextRole.META),
+                                        color=theme.COLORS["text_secondary"],
+                                    ),
+                                ],
+                                spacing=0,
+                                tight=True,
+                                expand=True,
+                            ),
+                            ft.TextButton(
+                                "Upravit",
+                                style=ft.ButtonStyle(
+                                    padding=ft.padding.symmetric(horizontal=8, vertical=0)
+                                ),
+                                on_click=lambda _e, u=user: self._edit_permissions(u),
+                            ),
+                        ],
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    subtitle=ft.Text(
-                        f"{count} oprávnění" if profile else "bez JLL profilu",
-                        size=theme.role_size(theme.TextRole.META),
-                    ),
-                    trailing=ft.TextButton(
-                        "Upravit",
-                        on_click=lambda _e, u=user: self._edit_permissions(u),
-                    ),
+                    padding=ft.padding.symmetric(vertical=2),
                 )
             )
-        self.body.controls.append(ft.Divider())
+        self.body.controls.append(ft.Divider(height=1))
         self.body.controls.append(
             ft.Text(
                 "Katalog oprávnění",
@@ -397,32 +455,22 @@ class AdminScreen:
             self.body.controls.append(
                 ft.Text(
                     f"{item.title_cs} — {item.description_cs}",
-                    size=theme.role_size(theme.TextRole.BODY),
+                    size=theme.role_size(theme.TextRole.META),
                 )
             )
 
     def _render_appearance(self) -> None:
-        self.body.controls.append(
-            ft.Text(
-                "Velikost textu",
-                size=theme.role_size(theme.TextRole.ACTION),
-                weight=ft.FontWeight.W_600,
-            )
-        )
-        for scale in theme.TextScale:
-            self.body.controls.append(
-                ft.Radio(
-                    value=scale.name,
-                    label=scale.name.replace("_", " ").title(),
-                )
-            )
         group = ft.RadioGroup(
             content=ft.Column(
                 [
-                    ft.Radio(value=theme.TextScale.NORMAL.name, label="Normální"),
-                    ft.Radio(value=theme.TextScale.LARGE.name, label="Velký"),
-                    ft.Radio(value=theme.TextScale.EXTRA_LARGE.name, label="Extra velký"),
-                ]
+                    ft.Radio(
+                        value=scale.name,
+                        label=f"Velikost textu {scale.label_cs}",
+                    )
+                    for scale in theme.TextScale
+                ],
+                tight=True,
+                spacing=2,
             ),
             value=self.state.text_scale.name,
             on_change=lambda e: self.on_text_scale(theme.TextScale[e.control.value]),
@@ -432,6 +480,12 @@ class AdminScreen:
                 "Velikost textu",
                 size=theme.role_size(theme.TextRole.ACTION),
                 weight=ft.FontWeight.W_600,
+            ),
+            ft.Text(
+                "Zvětší text v celé aplikaci včetně popisků tlačítek a buněk mřížky. "
+                "Role: PRIMARY (nadpis), ACTION (tlačítka), BODY (hodnoty), META (info).",
+                size=theme.role_size(theme.TextRole.META),
+                color=theme.COLORS["text_secondary"],
             ),
             group,
         ]

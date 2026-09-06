@@ -37,7 +37,7 @@ deadline, exkluzivitu variant a audit.
 
 ## Aktuální stav
 
-Verze `0.2.0` (Flet desktop UX). Aplikace se spouští pouze proti lokální
+Verze `0.2.1` (Flet desktop UX). Aplikace se spouští pouze proti lokální
 testovací databázi, jejíž identitu ověřuje LAB guard. Cílové UI je Flet;
 PySide6 zůstává referenční. Backend, identity, oprávnění a objednávkový
 write jsou implementované a otestované; část write kontraktů je záměrně
@@ -106,17 +106,21 @@ Denní sestava ve Flet UI: záložky `Souhrn kategorií` / `Normy` /
 - Oprávnění v GUI jsou česky; `User ID` a `Site ID` hospodářka nezadává.
 - Reset prvního spuštění: `./tools/reset_jll_first_run.sh` (ne DB).
 
-### Flet UX (`0.2.0`)
+### Flet UX (`0.2.1`)
 
 - Horní navigace (Strávníci / Stav výdeje / Sestavy / Administrace).
 - Hlavička: `JidelnaLocalLite vX.Y.Z`, pod tím provozovna + serverové datum
   a AM období (`TentoMesic`/`TentoRok` z parametry; **ne** `denobjednavky`).
 - Strávníci: užší search, autofocus, klávesy ↑/↓ + Enter, kontinuální čtečka,
   `+ Nový` v kartě, přihlášky na dnešek při otevření, ceny v jídelníčku,
-  výrazné okraje bloků, přepínač měsíců.
+  výrazné okraje bloků, přepínač měsíců; silný sloupec „dnes“ jen u
+  skutečného serverového dneška.
+- Velikost textu (Administrace → Vzhled) mění fonty a výšky buněk, ne zoom
+  okna; typy stravy bez sazby kategorie se v mřížce nezobrazují.
 - Vedoucí kuchyně (`BusinessSession`): bypass standardních deadline
   přihlášek/odhlášek (`bypass_order_deadlines`); nevarné dny zůstávají
   zakázané.
+- Administrace: Info = Databáze + Stanice + Audit.
 
 ## Bezpečnostní model
 

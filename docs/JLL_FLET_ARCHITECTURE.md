@@ -36,12 +36,15 @@ src/jll/flet_ui/
   viewmodels/       – tenké adaptéry nad services
 ```
 
-## UX poznámky (0.2.0)
+## UX poznámky (0.2.1)
 
 - Horní menu; Strávníci: search autofocus, ↑/↓/Enter, čtečka na pozadí.
 - Sestavy: záložky + filtr dne + Náhled/Export.
 - Stav výdeje: velké počty v kartách.
-- Administrace: nejdřív SUP modal, pak obsah.
+- Administrace: nejdřív SUP modal, pak obsah; Info = DB+Stanice+Audit.
+- Velikost textu přes `role_size`/`scaled` (ne zoom okna); sloupec „dnes“
+  jen u skutečného serverového dneška; typy stravy bez sazby kategorie
+  se v mřížce nezobrazují.
 
 ## Setup / reset
 

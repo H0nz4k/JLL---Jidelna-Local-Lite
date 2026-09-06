@@ -295,6 +295,7 @@ class FletAppController:
 
     def _set_scale(self, scale: theme.TextScale) -> None:
         self.state.text_scale = scale
+        theme.set_active_scale(scale)
         self._render_shell()
 
     def _diagnostics(self) -> None:

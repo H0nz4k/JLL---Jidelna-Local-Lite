@@ -450,17 +450,48 @@ class DinersScreen:
         rows = self.vm.month_rows(day)
         if not rows:
             return ft.Text("Žádná data přihlášek.", size=theme.role_size(theme.TextRole.META))
-        label_w = 64
+        label_w = int(theme.scaled(64))
+        cell_h = theme.scaled(22)
+        today_h = theme.scaled(26)
+        meta_size = theme.role_size(theme.TextRole.META)
+        actual_today = day.server_now.date()
+        selected_day = day.target_date.day
+        viewing_actual_today = day.target_date == actual_today
+
         header_cells: list[ft.Control] = [ft.Container(width=label_w)]
         for cell in rows[0].cells:
+            is_today_col = viewing_actual_today and cell.day == actual_today.day
+            is_selected_col = cell.day == selected_day and not is_today_col
+            if is_today_col:
+                header_bg, header_color, header_weight = (
+                    theme.COLORS["accent"],
+                    "#FFFFFF",
+                    ft.FontWeight.W_700,
+                )
+            elif is_selected_col:
+                header_bg, header_color, header_weight = (
+                    theme.COLORS["accent_soft"],
+                    theme.COLORS["text_primary"],
+                    ft.FontWeight.W_600,
+                )
+            else:
+                header_bg, header_color, header_weight = (
+                    None,
+                    theme.COLORS["text_secondary"],
+                    ft.FontWeight.W_400,
+                )
             header_cells.append(
                 ft.Container(
                     expand=True,
                     alignment=ft.alignment.center,
+                    bgcolor=header_bg,
+                    border_radius=4,
+                    padding=ft.padding.symmetric(vertical=2),
                     content=ft.Text(
                         str(cell.day),
-                        size=10,
-                        color=theme.COLORS["text_secondary"],
+                        size=meta_size if (is_today_col or is_selected_col) else max(10.0, meta_size - 1),
+                        weight=header_weight,
+                        color=header_color,
                     ),
                 )
             )
@@ -471,17 +502,23 @@ class DinersScreen:
                     width=label_w,
                     content=ft.Text(
                         row.meal_type,
-                        size=theme.role_size(theme.TextRole.META),
+                        size=meta_size,
                         overflow=ft.TextOverflow.ELLIPSIS,
                         max_lines=1,
                     ),
                 )
             ]
             for cell in row.cells:
+                is_today_col = viewing_actual_today and cell.day == actual_today.day
+                is_selected_col = cell.day == selected_day
                 bg = None
                 weight = ft.FontWeight.W_400
                 if cell.is_selected and not cell.is_ordered and not cell.is_subscribed:
-                    bg = theme.COLORS["today"]
+                    bg = (
+                        theme.COLORS["today_column"]
+                        if is_today_col
+                        else theme.COLORS["accent_soft"]
+                    )
                 if cell.is_ordered:
                     bg = (
                         theme.COLORS["ordered_selected"]
@@ -497,15 +534,29 @@ class DinersScreen:
                     )
                 elif not cell.is_cooking and cell.state == "*":
                     bg = theme.COLORS["non_cooking"]
+                if is_today_col and bg is None:
+                    bg = theme.COLORS["today_column"]
+                elif is_selected_col and not is_today_col and bg is None:
+                    bg = theme.COLORS["accent_soft"]
                 label = cell.state or ""
+                border = None
+                if is_today_col:
+                    border = ft.border.all(2, theme.COLORS["today_column_border"])
+                elif is_selected_col:
+                    border = ft.border.all(1, theme.COLORS["accent"])
                 cells.append(
                     ft.Container(
                         expand=True,
-                        height=22,
+                        height=today_h if is_today_col else cell_h,
                         alignment=ft.alignment.center,
                         bgcolor=bg,
                         border_radius=3,
-                        content=ft.Text(label, size=11, weight=weight),
+                        border=border,
+                        content=ft.Text(
+                            label,
+                            size=meta_size if is_today_col else max(10.0, meta_size - 1),
+                            weight=ft.FontWeight.W_700 if is_today_col else weight,
+                        ),
                         on_click=lambda _e, d=cell.day: self._pick_day(d),
                     )
                 )
@@ -557,19 +608,37 @@ class DinersScreen:
         if ordered is None and meal.current_state and meal.current_state.isdigit():
             ordered = int(meal.current_state)
 
+        # Stravný den (S/N/objednáno) bez zveřejněného jídelníčku → světle červená hláška.
+        is_meal_day = meal.current_state in {"S", "N"} or (
+            meal.current_state is not None and meal.current_state.isdigit()
+        )
+        unpublished_color = (
+            theme.COLORS["hint_warning"]
+            if is_meal_day
+            else theme.COLORS["text_secondary"]
+        )
+
         option_controls: list[ft.Control] = []
         if not meal.options:
             option_controls.append(
                 ft.Text(
                     "Jídelníček není zveřejněn",
                     size=theme.role_size(theme.TextRole.META),
-                    color=theme.COLORS["text_secondary"],
+                    color=unpublished_color,
+                    weight=ft.FontWeight.W_600 if is_meal_day else ft.FontWeight.W_400,
                 )
             )
         for option in meal.options:
             is_ordered = ordered == option.menu
             price = self.vm.format_money(option.price)
-            label = f"{option.menu} · cena {price} · {option.dish_name or 'Menu'}"
+            unpublished = not getattr(option, "published", True)
+            dish = option.dish_name or ("Jídelníček není zveřejněn" if unpublished else "Menu")
+            label = f"{option.menu} · cena {price} · {dish}"
+            text_color = (
+                unpublished_color
+                if unpublished and is_meal_day
+                else theme.COLORS["text_primary"]
+            )
             option_controls.append(
                 ft.Container(
                     content=ft.Text(
@@ -577,6 +646,12 @@ class DinersScreen:
                         size=theme.role_size(theme.TextRole.META),
                         max_lines=1,
                         overflow=ft.TextOverflow.ELLIPSIS,
+                        color=text_color,
+                        weight=(
+                            ft.FontWeight.W_600
+                            if unpublished and is_meal_day
+                            else ft.FontWeight.W_400
+                        ),
                     ),
                     bgcolor=(
                         theme.COLORS["ordered"]
