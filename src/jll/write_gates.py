@@ -95,6 +95,16 @@ DINER_WRITE_GATES: dict[str, WriteGate] = {
 }
 
 
+SERVING_WRITE_GATES: dict[str, WriteGate] = {
+    "record_pickup": WriteGate(
+        ContractStatus.PROVEN,
+        "LAB identity + category scope + aktivní strávník + prihlaska.id; "
+        "write pouze přes public.zapis_odber bez Python fallbacku.",
+        "Zapsat odběr",
+    ),
+}
+
+
 def require_proven(gates: dict[str, WriteGate], operation: str) -> None:
     gate = gates.get(operation)
     if gate is None:

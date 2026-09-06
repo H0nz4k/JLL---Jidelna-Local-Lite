@@ -8,8 +8,22 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [0.2.1] – 2026-09-07
 
-Flet UX patch: velikost textu bez zoomu okna, sloupec „dnes“, kompaktní
-Administrace a skrytí typů stravy bez sazby kategorie.
+Flet UX patch + JídelnaSQL logic parity/safety:
+
+- velikost textu bez zoomu okna, sloupec „dnes“, kompaktní Administrace,
+  skrytí typů stravy bez sazby kategorie;
+- periodická `prihlas.kategorie` pro ceny/reporty;
+- serving write LAB gates;
+- odhlášení bez nutnosti zveřejněného původního menu;
+- legacy user `id` + VED role clone;
+- setup kategorie z `public.kategor`.
+
+### Added
+
+- `SERVING_WRITE_GATES` + LAB identity guard ve `ServingService`.
+- `docs/JLL_JIDELNASQL_PARITY_AUDIT_0.2.1.md`.
+- Parity unit/integration testy (periodická kategorie, unsubscribe,
+  serving, legacy users, setup kategor).
 
 ### Changed
 
@@ -20,11 +34,21 @@ Administrace a skrytí typů stravy bez sazby kategorie.
   navigace a řádky.
 - Kalendář strávníka: silné zvýraznění sloupce jen při zobrazení
   skutečného serverového dneška.
+- Order/read path: business ceny a report grouping z `prihlas.kategorie`;
+  privacy scope zůstává na `stravnik.kategorie`.
+- `MENU_DELETE` nevyžaduje aktuální zveřejnění původního menu.
+- `create_user_from_template` alokuje `uzivatel.id` (`test_new_user_id`)
+  a klonuje `user_role` z VED.
+- Setup probe načítá kategorie z `public.kategor`.
+- Dokumentace: deadline bypass = provozní Flet `BusinessSession`, ne jen
+  string `VED`; operator ≠ strong-auth identity.
 
 ### Fixed
 
 - Typy stravy bez platné sazby pro kategorii strávníka se v měsíční mřížce
   a jídelníčku nezobrazují (např. Oběd-D u `3JARO`).
+- Divergence preflight ceny (`stravnik`) vs DB core (`prihlas`) při
+  změně kategorie strávníka.
 
 ## [0.2.0] – 2026-09-07
 

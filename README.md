@@ -117,9 +117,12 @@ Denní sestava ve Flet UI: záložky `Souhrn kategorií` / `Normy` /
   skutečného serverového dneška.
 - Velikost textu (Administrace → Vzhled) mění fonty a výšky buněk, ne zoom
   okna; typy stravy bez sazby kategorie se v mřížce nezobrazují.
+- Business parity: ceny/reporty z `prihlas.kategorie`; odhlášení bez
+  nutnosti zveřejněného menu; serving LAB write gates; setup z
+  `public.kategor`. Detaily: `docs/JLL_JIDELNASQL_PARITY_AUDIT_0.2.1.md`.
 - Vedoucí kuchyně (`BusinessSession`): bypass standardních deadline
-  přihlášek/odhlášek (`bypass_order_deadlines`); nevarné dny zůstávají
-  zakázané.
+  přihlášek/odhlášek (`bypass_order_deadlines`) pro provozní Flet session;
+  nevarné dny zůstávají zakázané.
 - Administrace: Info = Databáze + Stanice + Audit.
 
 ## Bezpečnostní model

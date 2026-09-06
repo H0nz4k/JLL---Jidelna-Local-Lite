@@ -19,9 +19,12 @@ JLL repositories / services / policies / write gates
 - Business identita = `public.uzivatel.uzivatel` (VED, KUCH, …).
 - Default start = **VED** bez PINu/loginu.
 - **SUP** admin heslo se nastavuje při prvním spuštění (JLL secret ≠ DB `heslo`).
-- Nový běžný uživatel: insert do `public.uzivatel` s `heslo=''`, `prava`/`prava1`/`typ` z VED; JLL permissions = kopie VED.
+- Nový běžný uživatel: insert do `public.uzivatel` s `heslo=''`, unikátní
+  `id` (`test_new_user_id`), `prava`/`prava1`/`typ` + `user_role` z VED;
+  JLL permissions = kopie VED. Zvolený operátor ≠ strong-auth identity.
 - Kalendář: `today` ze serveru; AM z `TentoMesic`/`TentoRok` (ne `denobjednavky`).
-- Flet VED: `bypass_order_deadlines` — standardní termíny přihlášek neplatí.
+- Flet provozní `BusinessSession`: `bypass_order_deadlines` — standardní
+  termíny přihlášek neplatí (ne jen kód VED).
 
 ## Balík
 

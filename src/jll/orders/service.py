@@ -182,11 +182,12 @@ class OrderService:
                 original_rows = dict(rows)
 
                 for transition in plan.transitions:
+                    period_category = original_rows[transition.typstravy].kategorie
                     self._apply_transition(
                         repository,
                         command,
                         target_type,
-                        diner.kategorie,
+                        period_category,
                         use_pricelist,
                         transition,
                     )
@@ -414,13 +415,17 @@ class OrderService:
     ) -> OrderPlan:
         target_row = rows[target_type.typstravy]
         target_state = target_row.state
-        if not repository.exact_menu_available(
-            command.datum, target_type.typstravy, command.menu
-        ):
-            raise OrderBusinessError(
-                ErrorCode.MENU_NOT_AVAILABLE,
-                "Požadované konkrétní menu není zveřejněno.",
-            )
+        # Nové menu (ADD/CHANGE) musí být zveřejněné. Odhlášení existující
+        # objednávky (DELETE) smí proběhnout i po skrytí původního jídelníčku
+        # — legacy `objednavka_minus` zveřejnění nevyžaduje.
+        if command.action in {OrderAction.MENU_ADD, OrderAction.MENU_CHANGE}:
+            if not repository.exact_menu_available(
+                command.datum, target_type.typstravy, command.menu
+            ):
+                raise OrderBusinessError(
+                    ErrorCode.MENU_NOT_AVAILABLE,
+                    "Požadované konkrétní menu není zveřejněno.",
+                )
 
         specs: list[tuple[MealType, str, str, TransitionReason]] = []
         if command.action is OrderAction.MENU_ADD:
@@ -493,6 +498,8 @@ class OrderService:
         transitions: list[Transition] = []
         for meal_type, before_state, after_state, reason in specs:
             row = rows[meal_type.typstravy]
+            # Periodická kategorie přihlášky řídí sazby/ceny (JídelnaSQL TPrihlas).
+            period_category = row.kategorie
             if is_ordered_state(after_state) and not repository.exact_menu_available(
                 command.datum, meal_type.typstravy, int(after_state)
             ):
@@ -503,7 +510,7 @@ class OrderService:
             before_price = (
                 self._price(
                     repository,
-                    category=diner.kategorie,
+                    category=period_category,
                     typstravy=meal_type.typstravy,
                     target=command.datum,
                     menu=int(before_state),
@@ -515,7 +522,7 @@ class OrderService:
             after_price = (
                 self._price(
                     repository,
-                    category=diner.kategorie,
+                    category=period_category,
                     typstravy=meal_type.typstravy,
                     target=command.datum,
                     menu=int(after_state),
@@ -537,8 +544,9 @@ class OrderService:
             )
 
         current_credit = calculate_credit(diner)
+        # Limit kategorie pro kredit: periodická kategorie cílové přihlášky.
         minimum_balance = calculate_minimum_balance(
-            repository.get_category_limit(diner.kategorie)
+            repository.get_category_limit(target_row.kategorie)
         )
         return OrderPlan(tuple(transitions), current_credit, minimum_balance)
 

@@ -141,6 +141,10 @@ class OrderRow:
     state: str | None
     cena: Decimal
     pocet: int
+    #: Periodická kategorie měsíční přihlášky (`public.prihlas.kategorie`).
+    #: Autoritativní pro sazby/ceny existující objednávky; nesmí se zaměňovat
+    #: za aktuální `stravnik.kategorie`.
+    kategorie: str
 
     @property
     def pk(self) -> tuple[int, str, int, int, int]:

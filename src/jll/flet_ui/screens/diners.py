@@ -779,7 +779,10 @@ class DinersScreen:
         def _serve(prihlaska_id: int, label: str):
             def _handler(_e):
                 try:
-                    ok = service.record_pickup(prihlaska_id)
+                    ok = service.record_pickup(
+                        prihlaska_id,
+                        evidcislo=evidcislo,
+                    )
                 except Exception as exc:
                     message_dialog(self.page, title="Odběr", body=str(exc))
                     return

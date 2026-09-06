@@ -1,13 +1,16 @@
-"""ServingService – výdej přes DB funkce; scope fail-closed."""
+"""ServingService – výdej přes DB funkce; LAB + scope fail-closed."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
 
+from .lab_guard import assert_lab_identity
 from .orders.errors import ErrorCode, OrderBusinessError
+from .orders.models import OrderServiceSettings
 from .policy import Permission, SessionPolicy
 from .serving_repository import ChipIdentityRow, MealReadyRow, ServingRepository
+from .write_gates import SERVING_WRITE_GATES, require_proven
 
 ConnectionFactory = Callable[[], Any]
 
@@ -17,9 +20,11 @@ class ServingService:
         self,
         connection_factory: ConnectionFactory,
         policy_provider: Callable[[], SessionPolicy],
+        settings: OrderServiceSettings,
     ) -> None:
         self._connection_factory = connection_factory
         self._policy_provider = policy_provider
+        self._settings = settings
 
     def identify_chip(self, chip_uid: str) -> ChipIdentityRow:
         policy = self._policy_provider()
@@ -28,7 +33,9 @@ class ServingService:
         with self._connection_factory() as connection:
             if hasattr(connection, "autocommit") and not connection.autocommit:
                 connection.autocommit = True
-            row = ServingRepository(connection).nacti_cip(chip_uid)
+            repository = ServingRepository(connection)
+            assert_lab_identity(self._settings, repository.lab_identity())
+            row = repository.nacti_cip(chip_uid)
         if row is None:
             raise OrderBusinessError(
                 ErrorCode.OUT_OF_SCOPE_OR_INACTIVE,
@@ -49,11 +56,13 @@ class ServingService:
             if hasattr(connection, "autocommit") and not connection.autocommit:
                 connection.autocommit = True
             repository = ServingRepository(connection)
+            assert_lab_identity(self._settings, repository.lab_identity())
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
                     SELECT kategorie FROM public.stravnik
                     WHERE evidcislo = %s
+                      AND stav = 'A'
                       AND COALESCE(deleted, false) = false
                     """,
                     (evidcislo,),
@@ -66,34 +75,66 @@ class ServingService:
                 )
             return repository.stravy_k_vydeji(evidcislo)
 
-    def record_pickup(self, prihlaska_id: int) -> bool:
-        """Zápis výdeje přes public.zapis_odber."""
+    def record_pickup(
+        self,
+        prihlaska_id: int,
+        *,
+        evidcislo: int | None = None,
+    ) -> bool:
+        """Zápis výdeje přes public.zapis_odber s LAB/scope gate."""
 
+        require_proven(SERVING_WRITE_GATES, "record_pickup")
+        if prihlaska_id <= 0:
+            raise OrderBusinessError(
+                ErrorCode.OUT_OF_SCOPE_OR_INACTIVE,
+                "Neplatné id přihlášky pro výdej.",
+            )
         policy = self._policy_provider()
         policy.require(Permission.ORDERS_CHANGE)
         scope = policy.scope()
         with self._connection_factory() as connection:
             with connection.transaction():
+                repository = ServingRepository(connection)
+                assert_lab_identity(self._settings, repository.lab_identity())
                 with connection.cursor() as cursor:
                     cursor.execute(
                         """
-                        SELECT s.kategorie
+                        SELECT s.evidcislo, s.kategorie
                         FROM public.prihlas AS p
                         JOIN public.stravnik AS s ON s.evidcislo = p.stravnik
                         WHERE p.id = %s
+                          AND s.stav = 'A'
+                          AND COALESCE(s.deleted, false) = false
                         """,
                         (prihlaska_id,),
                     )
                     row = cursor.fetchone()
-                if row is None or str(row[0]) not in scope:
+                if row is None:
+                    raise OrderBusinessError(
+                        ErrorCode.OUT_OF_SCOPE_OR_INACTIVE,
+                        "Přihláška výdeje neexistuje nebo strávník není aktivní.",
+                    )
+                owner = int(row[0])
+                category = str(row[1])
+                if category not in scope:
                     raise OrderBusinessError(
                         ErrorCode.OUT_OF_SCOPE_OR_INACTIVE,
                         "Přihláška výdeje je mimo povolený scope.",
                     )
-                return ServingRepository(connection).zapis_odber(prihlaska_id)
+                if evidcislo is not None and owner != evidcislo:
+                    raise OrderBusinessError(
+                        ErrorCode.OUT_OF_SCOPE_OR_INACTIVE,
+                        "Přihláška nepatří ověřenému strávníkovi.",
+                    )
+                return repository.zapis_odber(prihlaska_id)
 
-    def record_serving(self, prihlaska_id: int) -> bool:
-        return self.record_pickup(prihlaska_id)
+    def record_serving(
+        self,
+        prihlaska_id: int,
+        *,
+        evidcislo: int | None = None,
+    ) -> bool:
+        return self.record_pickup(prihlaska_id, evidcislo=evidcislo)
 
     def get_meals_to_serve(self, evidcislo: int) -> tuple[MealReadyRow, ...]:
         return self.meals_ready(evidcislo)

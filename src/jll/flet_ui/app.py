@@ -129,6 +129,7 @@ class FletAppController:
         self.state.serving_service = ServingService(
             pool.connection,
             business.current_policy,
+            config.order_settings,
         )
         try:
             self.state.diagnostics = self.state.read_service.verify_lab()

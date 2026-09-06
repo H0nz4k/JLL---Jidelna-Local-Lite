@@ -134,15 +134,11 @@ def probe_lab_database(
 
         category_rows = connection.execute(
             """
-            SELECT DISTINCT btrim(s.kategorie) AS code,
+            SELECT btrim(k.oznaceni) AS code,
                    NULLIF(btrim(k.nazev), '') AS name
-            FROM public.stravnik AS s
-            LEFT JOIN public.kategor AS k
-              ON k.oznaceni = s.kategorie
-            WHERE s.stav = 'A'
-              AND COALESCE(s.deleted, false) = false
-              AND s.kategorie IS NOT NULL
-            ORDER BY btrim(s.kategorie)
+            FROM public.kategor AS k
+            WHERE NULLIF(btrim(k.oznaceni), '') IS NOT NULL
+            ORDER BY lower(btrim(k.oznaceni))
             """
         ).fetchall()
     category_options = tuple(

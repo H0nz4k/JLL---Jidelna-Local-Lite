@@ -100,8 +100,8 @@ _ORDER_SUMMARY_SQL = """
     ORDER BY o.meal_type, o.menu
 """
 
-#: Přihlášky podle kategorií. Kategorie bez objednávky zůstává s nulou,
-#: aby souhrn odpovídal doložené referenční sestavě.
+#: Přihlášky podle periodické kategorie (`prihlas.kategorie`). Scope privacy
+#: zůstává na aktuální `stravnik.kategorie` (fail-closed).
 _CATEGORY_SUMMARY_SQL = """
     WITH selected AS (
       SELECT btrim(item) AS category, position
@@ -110,22 +110,23 @@ _CATEGORY_SUMMARY_SQL = """
     SELECT selected.category,
            NULLIF(btrim(k.nazev), '') AS category_name,
            NULLIF(upper(btrim(k.norma)), '') AS norm,
-           count(p.id)::integer AS orders
+           count(s.evidcislo)::integer AS orders
     FROM selected
     LEFT JOIN public.kategor AS k ON k.oznaceni = selected.category
-    LEFT JOIN public.stravnik AS s
-      ON s.kategorie = selected.category
-     AND COALESCE(s.deleted, false) = false
     LEFT JOIN public.prihlas AS p
-      ON p.stravnik = s.evidcislo
+      ON btrim(p.kategorie) = selected.category
      AND p.rok = %s
      AND p.mesic = %s
      AND p.{day} ~ '^[1-9]$'
+    LEFT JOIN public.stravnik AS s
+      ON s.evidcislo = p.stravnik
+     AND COALESCE(s.deleted, false) = false
+     AND s.kategorie = ANY(%s::varchar[])
     GROUP BY selected.position, selected.category, k.nazev, k.norma
     ORDER BY selected.position
 """
 
-#: Rozpad objednaných menu podle norem kategorií (`public.kategor.norma`).
+#: Rozpad objednaných menu podle norem periodické kategorie přihlášky.
 _NORM_SUMMARY_SQL = """
     SELECT btrim(p.typsluzby) AS meal_type,
            NULLIF(upper(btrim(k.norma)), '') AS norm,
@@ -133,7 +134,7 @@ _NORM_SUMMARY_SQL = """
            count(*)::integer AS portions
     FROM public.prihlas AS p
     JOIN public.stravnik AS s ON s.evidcislo = p.stravnik
-    JOIN public.kategor AS k ON k.oznaceni = s.kategorie
+    JOIN public.kategor AS k ON k.oznaceni = btrim(p.kategorie)
     WHERE p.rok = %s
       AND p.mesic = %s
       AND p.{day} ~ '^[1-9]$'
@@ -143,7 +144,7 @@ _NORM_SUMMARY_SQL = """
     ORDER BY meal_type, norm NULLS LAST, menu
 """
 
-#: Jmenný seznam objednávek. Každý typ stravy je samostatný řádek.
+#: Jmenný seznam objednávek. Kategorie v sestavě = periodická `prihlas.kategorie`.
 _NAMED_LIST_SQL = """
     WITH meals AS (
       SELECT btrim(j.typstravy) AS meal_type,
@@ -164,7 +165,7 @@ _NAMED_LIST_SQL = """
     )
     SELECT s.evidcislo,
            NULLIF(btrim(s.jmeno), '') AS name,
-           btrim(s.kategorie) AS category,
+           btrim(p.kategorie) AS category,
            NULLIF(btrim(k.nazev), '') AS category_name,
            NULLIF(upper(btrim(k.norma)), '') AS norm,
            btrim(p.typsluzby) AS meal_type,
@@ -172,7 +173,7 @@ _NAMED_LIST_SQL = """
            NULLIF(btrim(m.meal_name), '') AS meal_name
     FROM public.prihlas AS p
     JOIN public.stravnik AS s ON s.evidcislo = p.stravnik
-    LEFT JOIN public.kategor AS k ON k.oznaceni = s.kategorie
+    LEFT JOIN public.kategor AS k ON k.oznaceni = btrim(p.kategorie)
     LEFT JOIN meals AS m
       ON lower(m.meal_type) = lower(btrim(p.typsluzby))
      AND m.menu = p.{day}::integer
@@ -784,7 +785,7 @@ class OrderReadService:
                 )
                 category_rows = repository.fetchall(
                     sql.SQL(_CATEGORY_SUMMARY_SQL).format(day=day),
-                    (categories, target.year, target.month),
+                    (categories, target.year, target.month, categories),
                 )
                 norm_rows = repository.fetchall(
                     sql.SQL(_NORM_SUMMARY_SQL).format(day=day),
@@ -1268,9 +1269,52 @@ class OrderReadService:
         loaded_types = self._load_meal_types(repository)
         meal_types = [item for item, _order in loaded_types]
         display_orders = [order for _item, order in loaded_types]
+        day_identifiers = sql.SQL(", ").join(
+            sql.Identifier(column) for column in DAY_COLUMNS
+        )
+        # Periodická kategorie z existujících měsíčních přihlášek; bez řádku
+        # fallback na aktuální stravnik.kategorie (nová objednávka).
+        period_rows = repository.fetchall(
+            sql.SQL(
+                """
+                SELECT btrim(typsluzby) AS typstravy,
+                       NULLIF(btrim(kategorie), '') AS kategorie,
+                       {days}
+                FROM public.prihlas
+                WHERE stravnik = %s AND rok = %s AND mesic = %s
+                  AND typsluzby = ANY(%s::varchar[])
+                """
+            ).format(days=day_identifiers),
+            (
+                diner.evidcislo,
+                target.year,
+                target.month,
+                [item.typstravy for item in meal_types],
+            ),
+        )
+        period_by_type: dict[str, str] = {}
+        month_states: dict[str, tuple[str | None, ...]] = {}
+        for row in period_rows:
+            key = str(row["typstravy"])
+            if key in month_states:
+                raise OrderBusinessError(
+                    ErrorCode.AMBIGUOUS_ORDER_ROW,
+                    "Měsíční objednávkový řádek není jednoznačný.",
+                )
+            period_cat = row["kategorie"]
+            if period_cat:
+                period_by_type[key] = str(period_cat)
+            month_states[key] = tuple(
+                str(row[column]).strip() if row[column] is not None else None
+                for column in DAY_COLUMNS
+            )
+        unique_period = set(period_by_type.values())
+        business_category = (
+            next(iter(unique_period)) if len(unique_period) == 1 else diner.category
+        )
         allowed_menus = self._load_menu_capabilities(
             repository,
-            diner.category,
+            business_category,
             [item.typstravy for item in meal_types],
             target,
         )
@@ -1285,37 +1329,11 @@ class OrderReadService:
         display_orders = [order for _item, order in loaded_types]
         if not meal_types:
             return ()
-        day_identifiers = sql.SQL(", ").join(
-            sql.Identifier(column) for column in DAY_COLUMNS
-        )
-        state_rows = repository.fetchall(
-            sql.SQL(
-                """
-                SELECT btrim(typsluzby) AS typstravy, {days}
-                FROM public.prihlas
-                WHERE stravnik = %s AND rok = %s AND mesic = %s
-                  AND typsluzby = ANY(%s::varchar[])
-                """
-            ).format(days=day_identifiers),
-            (
-                diner.evidcislo,
-                target.year,
-                target.month,
-                [item.typstravy for item in meal_types],
-            ),
-        )
-        month_states: dict[str, tuple[str | None, ...]] = {}
-        for row in state_rows:
-            key = str(row["typstravy"])
-            if key in month_states:
-                raise OrderBusinessError(
-                    ErrorCode.AMBIGUOUS_ORDER_ROW,
-                    "Měsíční objednávkový řádek není jednoznačný.",
-                )
-            month_states[key] = tuple(
-                str(row[column]).strip() if row[column] is not None else None
-                for column in DAY_COLUMNS
-            )
+        month_states = {
+            key: value
+            for key, value in month_states.items()
+            if key in {item.typstravy for item in meal_types}
+        }
 
         menu_rows = repository.fetchall(
             """
@@ -1368,7 +1386,7 @@ class OrderReadService:
                 ],
                 target,
                 [item.typstravy for item in meal_types],
-                diner.category,
+                business_category,
                 target.year,
                 target.month,
                 target.day,

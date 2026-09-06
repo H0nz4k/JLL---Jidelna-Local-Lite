@@ -41,6 +41,24 @@ class ServingRepository:
     def __init__(self, connection: Any) -> None:
         self.connection = connection
 
+    def lab_identity(self) -> Mapping[str, Any]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    current_database() AS database_name,
+                    host(inet_server_addr()) AS server_address,
+                    inet_server_port() AS server_port,
+                    (SELECT system_identifier::text FROM pg_control_system())
+                        AS system_identifier,
+                    version() AS server_version
+                """
+            )
+            row = cursor.fetchone()
+        if row is None:
+            raise RuntimeError("Lokální LAB databázi nelze ověřit.")
+        return row
+
     def nacti_cip(self, chip_uid: str) -> ChipIdentityRow | None:
         token = chip_uid.strip()
         if not token:

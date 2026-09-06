@@ -12,7 +12,7 @@ from typing import Any
 from .config import LabConfig
 from .identity import ActorContext
 from .identity_store import IdentityStore, UserRecord, generate_user_id
-from .legacy_users import LegacyUserRepository, LegacyUserRow
+from .legacy_users import LegacyUserRepository, LegacyUserRow, copy_ved_access_fields
 from .policy import Permission, SessionPolicy
 from .sup_secret import SupSecretStore
 from .version import audit_client_version
@@ -122,11 +122,19 @@ class BusinessSession:
             user_identity=user.display_name,
             allowed_categories=self.config.allowed_categories,
             permissions=user.permissions,
-            # Flet / vedoucí kuchyně: standardní termíny přihlášek/odhlášek neplatí.
+            # Provozní Flet BusinessSession (kitchen operator mode): standardní
+            # klientské termíny přihlášek/odhlášek neplatí pro zvoleného
+            # provozního operátora — ne jen pro kód "VED".
             bypass_order_deadlines=True,
         )
 
     def current_actor(self) -> ActorContext:
+        """Audit actor = zvolený provozní operátor (ne strong-auth identity).
+
+        SUP reauth odemyká administraci, ale nezaměňuje short_code za SUP;
+        provozní zápisy stále nesou kód zvoleného legacy uživatele.
+        """
+
         user = self.current_jll_user()
         legacy = self.current_legacy()
         return ActorContext(
@@ -162,15 +170,17 @@ class BusinessSession:
                 ved = repo.get_user(DEFAULT_VED)
                 if ved is None:
                     raise RuntimeError("VED šablona chybí.")
+                prava, prava1, typ = copy_ved_access_fields(ved)
                 template = LegacyUserRow(
                     code=ved.code,
                     display_name=ved.display_name,
                     is_admin=False,
-                    typ=ved.typ or "INTERNI",
+                    typ=typ or "INTERNI",
                     disabled=False,
-                    prava=ved.prava,
-                    prava1=ved.prava1,
+                    prava=prava,
+                    prava1=prava1,
                     has_password=False,
+                    legacy_id=ved.legacy_id,
                 )
                 created = repo.create_user_from_template(
                     code=code,

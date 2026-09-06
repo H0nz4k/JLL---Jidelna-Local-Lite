@@ -253,8 +253,8 @@ uživatelské business operace; nejde o samostatné uživatelské příkazy.
 
 ### 3.6 Konkrétní menu a jídelníček
 
-Pro každé nově přihlašované menu a pro explicitně požadované menu
-odhlášky musí existovat konkrétní vazba:
+Pro `MENU_ADD` a `MENU_CHANGE` musí existovat konkrétní vazba na
+**zveřejněné** menu (`jidelnicek.zverejneny = true`):
 
 ```text
 jidelnicek
@@ -262,7 +262,7 @@ jidelnicek
 -> typstrj
 ```
 
-Povinné podmínky:
+Povinné podmínky (jen nové přihlášení / změna menu):
 
 ```text
 jidelnicek.datum = :datum
@@ -280,8 +280,10 @@ Stačí `EXISTS`, protože jedno menu může mít více částí. Pokud join vra
 části více různých menu nebo je vazba nekonzistentní, operace se zamítne.
 Samotný text jídelníčku není důkaz objednatelnosti.
 
-Pro automatický minus již existujícího konfliktního typu je rozhodující
-zamknutý skutečný stav. Publikace starého jídla se může mezitím změnit;
+`MENU_DELETE` (odhlášení) **nevyžaduje**, aby původní jídelníček zůstal
+zveřejněný — legacy `objednavka_minus` zveřejnění nevyžaduje. Odhláška se
+řídí zamknutým stavem existující objednávky. Totéž platí pro automatický
+minus konfliktního typu: publikace starého jídla se může mezitím změnit;
 odstranění známé objednávky se kvůli tomu samo o sobě nezablokuje. Cena však
 musí být bezpečně doložena pro finanční plán a post-write kontrolu.
 

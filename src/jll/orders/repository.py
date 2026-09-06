@@ -560,7 +560,8 @@ class OrderRepository:
                 poradiprihl,
                 {day_column} AS state,
                 cena,
-                pocet
+                pocet,
+                NULLIF(btrim(kategorie), '') AS kategorie
             FROM public.prihlas
             WHERE stravnik = %s
               AND rok = %s
@@ -612,6 +613,12 @@ class OrderRepository:
                     ErrorCode.POSTCONDITION_FAILED,
                     "prihlas.pocet nesmí být záporný.",
                 )
+            period_category = raw["kategorie"]
+            if not period_category:
+                raise OrderBusinessError(
+                    ErrorCode.POSTCONDITION_FAILED,
+                    "prihlas.kategorie nesmí být prázdná.",
+                )
             result[name] = OrderRow(
                 stravnik=int(raw["stravnik"]),
                 typsluzby=name,
@@ -628,6 +635,7 @@ class OrderRepository:
                     error_code=ErrorCode.POSTCONDITION_FAILED,
                 ),
                 pocet=count,
+                kategorie=str(period_category),
             )
         return result
 
