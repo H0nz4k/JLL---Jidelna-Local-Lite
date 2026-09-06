@@ -18,21 +18,30 @@ JLL repositories / services / policies / write gates
 - Flet UI neobsahuje SQL, finance, order/chip rules ani obcházení permissions/write gates.
 - Business identita = `public.uzivatel.uzivatel` (VED, KUCH, …).
 - Default start = **VED** bez PINu/loginu.
-- **SUP** admin heslo se nastavuje při prvním spuštění (JLL secret ≠ DB `heslo`, pokud není doložena kompatibilita).
+- **SUP** admin heslo se nastavuje při prvním spuštění (JLL secret ≠ DB `heslo`).
 - Nový běžný uživatel: insert do `public.uzivatel` s `heslo=''`, `prava`/`prava1`/`typ` z VED; JLL permissions = kopie VED.
+- Kalendář: `today` ze serveru; AM z `TentoMesic`/`TentoRok` (ne `denobjednavky`).
+- Flet VED: `bypass_order_deadlines` — standardní termíny přihlášek neplatí.
 
 ## Balík
 
 ```text
 src/jll/flet_ui/
-  app.py            – entrypoint + wiring services
-  theme.py          – 4 typography roles + scale
+  app.py            – entrypoint + wiring + SUP modal pro Administraci
+  theme.py          – 4 typography roles + scale + block borders
   state.py          – AppState + permission/gate helpers
   routes.py
-  components/       – shell, nav, dialogs, badges
+  components/       – shell (top nav), dialogs, badges
   screens/          – diners, serving, reports, admin, setup
   viewmodels/       – tenké adaptéry nad services
 ```
+
+## UX poznámky (0.2.0)
+
+- Horní menu; Strávníci: search autofocus, ↑/↓/Enter, čtečka na pozadí.
+- Sestavy: záložky + filtr dne + Náhled/Export.
+- Stav výdeje: velké počty v kartách.
+- Administrace: nejdřív SUP modal, pak obsah.
 
 ## Setup / reset
 

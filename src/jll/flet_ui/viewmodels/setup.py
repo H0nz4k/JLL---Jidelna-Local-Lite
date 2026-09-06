@@ -61,8 +61,8 @@ class SetupViewModel:
         return probe
 
     def validate_sup(self) -> None:
-        if len(self.draft.sup_password.strip()) < 6:
-            raise ValueError("SUP heslo musí mít alespoň 6 znaků.")
+        if len(self.draft.sup_password.strip()) < 4:
+            raise ValueError("SUP heslo musí mít alespoň 4 znaky.")
         if self.draft.sup_password != self.draft.sup_password_confirm:
             raise ValueError("Hesla SUP se neshodují.")
 

@@ -178,6 +178,91 @@ class LabDiagnostics:
 
 
 @dataclass(frozen=True, slots=True)
+class BusinessCalendar:
+    """Kalendář jídelny.
+
+    - `today` = datum ze serveru (`clock_timestamp` v business timezone)
+    - `period_month` / `period_year` = `TentoMesic` / `TentoRok` z `parametry`
+    """
+
+    today: date
+    period_month: int
+    period_year: int
+
+    _WEEKDAYS = (
+        "pondělí",
+        "úterý",
+        "středa",
+        "čtvrtek",
+        "pátek",
+        "sobota",
+        "neděle",
+    )
+    _MONTHS = (
+        "",
+        "leden",
+        "únor",
+        "březen",
+        "duben",
+        "květen",
+        "červen",
+        "červenec",
+        "srpen",
+        "září",
+        "říjen",
+        "listopad",
+        "prosinec",
+    )
+
+    @property
+    def period_label(self) -> str:
+        name = (
+            self._MONTHS[self.period_month]
+            if 1 <= self.period_month <= 12
+            else str(self.period_month)
+        )
+        return f"AM {name} {self.period_year}"
+
+    @property
+    def today_label(self) -> str:
+        weekday = self._WEEKDAYS[self.today.weekday()]
+        return f"{weekday} {self.today.strftime('%d.%m.%Y')}"
+
+    @property
+    def header_label(self) -> str:
+        """Formát hlavičky: `neděle 06.09.2026 - - AM září 2026`."""
+
+        return f"{self.today_label} - - {self.period_label}"
+
+    @classmethod
+    def month_name_cs(cls, month: int, *, title: bool = False) -> str:
+        name = cls._MONTHS[month] if 1 <= month <= 12 else str(month)
+        if title and name:
+            return name[:1].upper() + name[1:]
+        return name
+
+    @property
+    def next_period_month(self) -> int:
+        return 1 if self.period_month == 12 else self.period_month + 1
+
+    @property
+    def next_period_year(self) -> int:
+        return self.period_year + 1 if self.period_month == 12 else self.period_year
+
+    def date_in_period(self, *, future: bool, day: int | None = None) -> date:
+        """Vrátí den v aktuálním nebo budoucím účetním měsíci."""
+
+        import calendar as cal
+
+        year = self.next_period_year if future else self.period_year
+        month = self.next_period_month if future else self.period_month
+        last = cal.monthrange(year, month)[1]
+        if day is None:
+            day = self.today.day if not future else 1
+        return date(year, month, min(max(1, day), last))
+
+
+@dataclass(frozen=True, slots=True)
 class PickupStatusRow:
     meal_type: str
     menu: int

@@ -8,6 +8,7 @@ from .. import theme
 from ..components.dialogs import message_dialog
 from ..state import AppState
 from ..viewmodels.setup import SetupViewModel
+from ...setup_probe import CategoryOption
 
 
 class SetupScreen:
@@ -146,15 +147,40 @@ class SetupScreen:
         if d.probe is None:
             self.body.controls.append(ft.Text("Nejprve ověřte databázi."))
             return
-        checks = []
-        for cat in d.probe.categories:
+        options = d.probe.category_options or tuple(
+            CategoryOption(code=c) for c in d.probe.categories
+        )
+        checkboxes: list[ft.Checkbox] = []
+
+        def _sync_all_box() -> None:
+            all_box.value = bool(options) and len(d.categories) == len(options)
+            all_box.update()
+
+        def _toggle_all(e: ft.ControlEvent) -> None:
+            selected = bool(e.control.value)
+            d.categories = [item.code for item in options] if selected else []
+            for cb, item in zip(checkboxes, options, strict=True):
+                cb.value = selected
+            self.page.update()
+
+        def _toggle_one(code: str, selected: bool) -> None:
+            self._toggle_cat(code, selected)
+            _sync_all_box()
+
+        all_box = ft.Checkbox(
+            label="Vybrat vše",
+            value=bool(options) and len(d.categories) == len(options),
+            on_change=_toggle_all,
+        )
+        self.body.controls.append(all_box)
+        for item in options:
             cb = ft.Checkbox(
-                label=cat,
-                value=cat in d.categories,
-                on_change=lambda e, c=cat: self._toggle_cat(c, bool(e.control.value)),
+                label=item.label,
+                value=item.code in d.categories,
+                on_change=lambda e, c=item.code: _toggle_one(c, bool(e.control.value)),
             )
-            checks.append(cb)
-        self.body.controls.extend(checks)
+            checkboxes.append(cb)
+            self.body.controls.append(cb)
         self._persist = lambda: None
 
     def _toggle_cat(self, cat: str, selected: bool) -> None:

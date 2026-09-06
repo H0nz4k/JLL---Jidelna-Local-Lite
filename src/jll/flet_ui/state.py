@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from datetime import date
 from enum import Enum
@@ -76,6 +77,7 @@ class AppState:
     read_service: Any = None
     application_service: Any = None
     chip_reader: Any = None
+    serving_service: Any = None
     route: Route = Route.DINERS
     text_scale: TextScale = TextScale.NORMAL
     search_query: str = ""
@@ -85,6 +87,13 @@ class AppState:
     status_message: str = ""
     needs_setup: bool = False
     diagnostics: Any = None
+    business_calendar: Any = None
+    chip_listen_stop: threading.Event | None = None
+
+    def stop_chip_listen(self) -> None:
+        if self.chip_listen_stop is not None:
+            self.chip_listen_stop.set()
+            self.chip_listen_stop = None
 
     def has_perm(self, permission: Permission) -> bool:
         if self.business is None:

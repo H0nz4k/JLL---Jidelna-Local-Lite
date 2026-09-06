@@ -24,6 +24,7 @@ from .orders.repository import DAY_COLUMNS
 from .policy import Permission, SessionPolicy
 from .read_models import (
     ActionAvailability,
+    BusinessCalendar,
     CategoryOrderSummary,
     ChipIdentification,
     DailyReport,
@@ -354,6 +355,64 @@ class OrderReadService:
                         "Serverové datum nelze bezpečně určit.",
                     )
                 return row["server_now"].date()
+
+    def load_business_calendar(self) -> BusinessCalendar:
+        """Načte účetní období z `parametry` a dnešní datum ze serveru.
+
+        - `TentoMesic` / `TentoRok` → AM období
+        - `today` → `clock_timestamp()` v business timezone (ne `denobjednavky`)
+        """
+
+        with self._session() as (connection, repository):
+            with connection.transaction():
+                repository.configure_read_transaction(
+                    self.settings.business_timezone,
+                    self.settings.statement_timeout_ms,
+                )
+                rows = repository.fetchall(
+                    """
+                    SELECT btrim(parametr) AS parametr,
+                           NULLIF(btrim(hodnota), '') AS hodnota
+                    FROM public.parametry
+                    WHERE lower(btrim(sekce)) = lower('BACKUP')
+                      AND lower(btrim(parametr)) IN (
+                        lower('TentoMesic'),
+                        lower('TentoRok')
+                      )
+                    """
+                )
+                values = {
+                    str(row["parametr"]).casefold(): str(row["hodnota"])
+                    for row in rows
+                    if row["hodnota"] is not None
+                }
+                try:
+                    period_month = int(values["tentomesic"])
+                    period_year = int(values["tentorok"])
+                except (KeyError, ValueError) as exc:
+                    raise OrderBusinessError(
+                        ErrorCode.LAB_GUARD_FAILED,
+                        "Účetní období (TentoMesic/TentoRok) nelze bezpečně načíst.",
+                    ) from exc
+                if not 1 <= period_month <= 12 or period_year < 2000:
+                    raise OrderBusinessError(
+                        ErrorCode.LAB_GUARD_FAILED,
+                        "Účetní období v parametry není platné.",
+                    )
+                now_row = repository.fetchone(
+                    "SELECT clock_timestamp() AS server_now"
+                )
+                if now_row is None or not isinstance(now_row["server_now"], datetime):
+                    raise OrderBusinessError(
+                        ErrorCode.LAB_GUARD_FAILED,
+                        "Serverové datum nelze bezpečně určit.",
+                    )
+                today = now_row["server_now"].date()
+                return BusinessCalendar(
+                    today=today,
+                    period_month=period_month,
+                    period_year=period_year,
+                )
 
     def list_diners(self) -> list[DinerSummary]:
         scope = self._scope(Permission.DINERS_VIEW)
@@ -1378,6 +1437,7 @@ class OrderReadService:
         for position, meal_type in enumerate(meal_types):
             states = month_states.get(meal_type.typstravy, ())
             calendars = calendars_by_type.get(meal_type.typstravy, {})
+            bypass_deadlines = self.policy.bypass_order_deadlines
             availability = tuple(
                 self._deadline_availability(
                     meal_type,
@@ -1385,6 +1445,7 @@ class OrderReadService:
                     target,
                     server_now,
                     calendars,
+                    allow_expired=bypass_deadlines,
                 )
                 for action in OrderAction
             )
@@ -1423,6 +1484,8 @@ class OrderReadService:
         target: date,
         server_now: datetime,
         calendars: Mapping[tuple[int, int], Mapping[int, bool]],
+        *,
+        allow_expired: bool = False,
     ) -> ActionAvailability:
         day_offset, cutoff = deadline_fields(
             action,
@@ -1443,6 +1506,7 @@ class OrderReadService:
                     calendars.get((target.year, target.month), {}).get(target.day)
                 ),
                 calendars=calendars,
+                allow_expired=allow_expired,
             )
         except OrderBusinessError as exc:
             if exc.code not in {

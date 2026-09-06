@@ -6,6 +6,7 @@ from decimal import Decimal
 import psycopg
 import pytest
 
+from jll.application import determine_action
 from jll.orders.audit import audit_price, transition_note
 from jll.orders.errors import ErrorCode, OrderBusinessError
 from jll.orders.models import (
@@ -28,6 +29,7 @@ from jll.orders.preflight import (
     decimal_from_db,
     monthly_advisory_key,
 )
+from jll.read_models import ActionAvailability, MealDay, MenuOption
 from jll.orders.service import OrderService
 
 SYSTEM_IDENTIFIER = "123456789"
@@ -297,6 +299,60 @@ def test_deadline_uses_minimum_calendar_offset_then_first_cooking_day() -> None:
             target_is_cooking=True,
             calendars=calendars,
         )
+
+
+def test_deadline_allow_expired_skips_cutoff() -> None:
+    assert_deadline(
+        server_now=datetime(2026, 9, 3, 18, 0, tzinfo=timezone.utc),
+        target=date(2026, 9, 3),
+        day_offset=0,
+        cutoff=time(9, 0),
+        target_is_cooking=True,
+        calendars={(2026, 9): {3: True}},
+        allow_expired=True,
+    )
+
+
+def test_deadline_allow_expired_still_rejects_non_cooking() -> None:
+    with pytest.raises(OrderBusinessError) as caught:
+        assert_deadline(
+            server_now=datetime(2026, 9, 3, 8, 0, tzinfo=timezone.utc),
+            target=date(2026, 9, 3),
+            day_offset=0,
+            cutoff=time(9, 0),
+            target_is_cooking=False,
+            calendars={(2026, 9): {3: False}},
+            allow_expired=True,
+        )
+    assert caught.value.code is ErrorCode.NON_COOKING_DAY
+
+
+def test_determine_action_bypasses_expired_deadline() -> None:
+    target = MealDay(
+        code="X",
+        meal_type="Oběd-B",
+        display_order=1,
+        current_state="1",
+        options=(MenuOption(1, "První", Decimal("20")),),
+        availability=(
+            ActionAvailability(OrderAction.MENU_ADD, False, ErrorCode.DEADLINE_EXPIRED),
+            ActionAvailability(
+                OrderAction.MENU_CHANGE, False, ErrorCode.DEADLINE_EXPIRED
+            ),
+            ActionAvailability(
+                OrderAction.MENU_DELETE, False, ErrorCode.DEADLINE_EXPIRED
+            ),
+        ),
+        exclusive_codes=frozenset(),
+        allowed_menus=(1,),
+    )
+    with pytest.raises(OrderBusinessError) as blocked:
+        determine_action(target, 1)
+    assert blocked.value.code is ErrorCode.DEADLINE_EXPIRED
+    assert (
+        determine_action(target, 1, bypass_order_deadlines=True)
+        is OrderAction.MENU_DELETE
+    )
 
 
 def test_non_cooking_target_is_rejected() -> None:

@@ -122,6 +122,8 @@ class BusinessSession:
             user_identity=user.display_name,
             allowed_categories=self.config.allowed_categories,
             permissions=user.permissions,
+            # Flet / vedoucí kuchyně: standardní termíny přihlášek/odhlášek neplatí.
+            bypass_order_deadlines=True,
         )
 
     def current_actor(self) -> ActorContext:

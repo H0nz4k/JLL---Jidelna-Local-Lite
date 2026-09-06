@@ -37,10 +37,11 @@ deadline, exkluzivitu variant a audit.
 
 ## Aktuální stav
 
-Verze `0.1.0`, LAB baseline. Aplikace se spouští pouze proti lokální
-testovací databázi, jejíž identitu ověřuje LAB guard. Backend, GUI,
-identity, oprávnění a objednávkový write jsou implementované a otestované;
-část write kontraktů je záměrně uzavřená (write gates).
+Verze `0.2.0` (Flet desktop UX). Aplikace se spouští pouze proti lokální
+testovací databázi, jejíž identitu ověřuje LAB guard. Cílové UI je Flet;
+PySide6 zůstává referenční. Backend, identity, oprávnění a objednávkový
+write jsou implementované a otestované; část write kontraktů je záměrně
+uzavřená (write gates).
 
 ## Hlavní funkce
 
@@ -72,35 +73,50 @@ identity, oprávnění a objednávkový write jsou implementované a otestované
 
 - Read-only přehled čipových řádků včetně doloženého popisu stavu.
 - `ChipReader` abstrakce s fake i sériovým adapterem a explicitním portem.
-- Tlačítko `Identifikovat čip` načte čip a otevře kartu jeho vlastníka;
-  čip mimo scope nevrátí žádnou identitu.
+- Ve Flet UI čtečka poslouchá na pozadí: přiložení čipu otevře kartu
+  vlastníka (bez tlačítka Identifikovat). Pokud je port v nastavení, ale
+  zařízení není připojené, search pole ukáže světle červené
+  `čtečka nepřipojena`.
 - Administrace → Čtečka: COM port z OS enumerace, baudrate, ukončení řádku
-  a modální test čtečky. Uložení vyžaduje `admin.reader` i reautentizaci.
+  a test čtečky. Uložení vyžaduje `admin.reader` i SUP reauth.
 - Čipové zápisy jsou fail-closed.
 
 ### Stav výdeje
 
-Read-only přehled objednáno / vydáno / zbývá pro vybraný den ve stejném
-scope jako ostatní čtení. `ZBÝVÁ` je dominantní hodnota a dokončený řádek
-je zeleně odlišený.
+Read-only přehled objednáno / vydáno / zbývá pro dnešek ve stejném scope.
+Ve Flet UI je panelový layout s velkým `ZBÝVÁ CELKEM` a kartami po typech
+stravy (velké počty zbývajících porcí).
 
 ### Sestavy
 
-Denní sestava pro `Dnes`, `Zítra`, následující varný den nebo zvolené
-datum: jmenný seznam objednávek (společně nebo po kategoriích), jídelníček
-s počty porcí, souhrn kategorií a rozpad menu podle norem `A`–`D`.
-Volitelný PDF export vyžaduje `reports.print` a extra `pdf`
-(`pip install "jidelna-local-lite[pdf]"`); font se hledá v systému, žádný
-se nekopíruje do repozitáře.
+Denní sestava ve Flet UI: záložky `Souhrn kategorií` / `Normy` /
+`Jmenný seznam`, filtr `Dnes` / `Zítra` / `Další varný den`, tlačítka
+`Náhled` (modální okno) a `Export` (PDF při `reports.print` + extra
+`pdf`). PySide6 má vlastní dialog sestav.
 
 ### Setup / Login / Admin
 
-- First-run Setup Wizard vytvoří LAB konfiguraci a prvního admina.
+- First-run Setup Wizard vytvoří LAB konfiguraci a SUP admin secret
+  (bez PINu pro běžný start VED).
 - Provozovna se načte z databáze (`NameSubject`); stanice se vybírá
-  z `public.stanice` (legacy STANICE).
-- Login proti lokálnímu identity store s argon2 hashem PINu.
+  z `public.stanice`.
+- Default start = VED bez loginu; přepínač uživatelů z `public.uzivatel`.
+- Administrace ve Fletu: po kliknutí jen modal `Ověření SUP` přes šedé
+  pozadí; po hesle se zobrazí sekce (Uživatelé, Oprávnění, …).
 - Oprávnění v GUI jsou česky; `User ID` a `Site ID` hospodářka nezadává.
-- Administrace vyžaduje opětovné ověření PINem a auditované operace.
+- Reset prvního spuštění: `./tools/reset_jll_first_run.sh` (ne DB).
+
+### Flet UX (`0.2.0`)
+
+- Horní navigace (Strávníci / Stav výdeje / Sestavy / Administrace).
+- Hlavička: `JidelnaLocalLite vX.Y.Z`, pod tím provozovna + serverové datum
+  a AM období (`TentoMesic`/`TentoRok` z parametry; **ne** `denobjednavky`).
+- Strávníci: užší search, autofocus, klávesy ↑/↓ + Enter, kontinuální čtečka,
+  `+ Nový` v kartě, přihlášky na dnešek při otevření, ceny v jídelníčku,
+  výrazné okraje bloků, přepínač měsíců.
+- Vedoucí kuchyně (`BusinessSession`): bypass standardních deadline
+  přihlášek/odhlášek (`bypass_order_deadlines`); nevarné dny zůstávají
+  zakázané.
 
 ## Bezpečnostní model
 

@@ -34,6 +34,7 @@ class SessionPolicy:
     user_identity: str
     allowed_categories: frozenset[str]
     permissions: frozenset[Permission]
+    bypass_order_deadlines: bool = False
 
     def __post_init__(self) -> None:
         if not self.user_identity.strip():

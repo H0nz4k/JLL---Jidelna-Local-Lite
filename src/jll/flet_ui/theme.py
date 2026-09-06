@@ -37,14 +37,18 @@ COLORS: dict[str, str] = {
     "surface": "#FFFFFF",
     "surface_muted": "#F7F9FB",
     "border": "#D5DEE7",
+    "block_border": "#7A8794",
     "text_primary": "#14202B",
     "text_secondary": "#5A6B7A",
+    "hint_warning": "#D45353",
     "accent": "#1E5A84",
     "accent_soft": "#D9EAF7",
     "selected": "#C8DFF2",
     "today": "#FBF3D6",
     "ordered": "#D7F0DF",
     "ordered_selected": "#A9DDB8",
+    "subscribed": "#B7C4BE",
+    "subscribed_selected": "#9AABA3",
     "non_cooking": "#E6EBEF",
     "danger": "#9B1C1C",
     "lab": "#8A1F1F",
@@ -60,11 +64,13 @@ SPACING: dict[str, int] = {
     "xl": 24,
 }
 
-NAV_WIDTH = 196
-LIST_RATIO = 0.28
-DETAIL_RATIO = 0.72
+NAV_WIDTH = 0  # menu je v horní liště
+LIST_WIDTH = 220
+LIST_RATIO = 0.18
+DETAIL_RATIO = 0.82
 WINDOW_WIDTH = 1366
 WINDOW_HEIGHT = 768
+BLOCK_BORDER_WIDTH = 2
 
 
 def role_size(role: TextRole, scale: TextScale = TextScale.NORMAL) -> float:

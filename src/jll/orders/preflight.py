@@ -169,12 +169,15 @@ def assert_deadline(
     cutoff: time,
     target_is_cooking: bool,
     calendars: Mapping[tuple[int, int], Mapping[int, bool]],
+    allow_expired: bool = False,
 ) -> None:
     if not target_is_cooking:
         raise OrderBusinessError(
             ErrorCode.NON_COOKING_DAY,
             "Cílový den není varný den.",
         )
+    if allow_expired:
+        return
 
     current = server_now.date()
     if day_offset == 0:

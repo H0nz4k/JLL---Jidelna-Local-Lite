@@ -54,6 +54,9 @@ class AdminScreen:
                             width=180,
                             bgcolor=theme.COLORS["surface"],
                             padding=theme.SPACING["sm"],
+                            border=ft.border.all(
+                                theme.BLOCK_BORDER_WIDTH, theme.COLORS["block_border"]
+                            ),
                             border_radius=8,
                         ),
                         ft.Container(
@@ -61,6 +64,9 @@ class AdminScreen:
                             expand=True,
                             bgcolor=theme.COLORS["surface"],
                             padding=theme.SPACING["lg"],
+                            border=ft.border.all(
+                                theme.BLOCK_BORDER_WIDTH, theme.COLORS["block_border"]
+                            ),
                             border_radius=8,
                         ),
                     ],
@@ -71,6 +77,7 @@ class AdminScreen:
             expand=True,
             spacing=theme.SPACING["md"],
         )
+        # SUP se ověřuje modalem v app.py před vstupem; tady už jen obsah.
         self._open_section("Uživatelé")
 
     def control(self) -> ft.Control:
@@ -196,6 +203,11 @@ class AdminScreen:
                     ft.Text(status, size=theme.role_size(theme.TextRole.META)),
                     ft.Text(perms, size=theme.role_size(theme.TextRole.META)),
                     ft.TextButton(
+                        "Oprávnění",
+                        visible=profile is not None and not user.is_admin,
+                        on_click=lambda _e, u=user: self._edit_permissions(u),
+                    ),
+                    ft.TextButton(
                         "Zavést profil",
                         visible=profile is None and not user.is_admin,
                         on_click=lambda _e, u=user: self._ensure(u),
@@ -211,6 +223,80 @@ class AdminScreen:
             self._open_section("Uživatelé")
         except Exception as exc:
             message_dialog(self.page, title="Profil", body=str(exc))
+
+    def _edit_permissions(self, user) -> None:
+        try:
+            profile = self.vm.ensure_profile(user)
+        except Exception as exc:
+            message_dialog(self.page, title="Oprávnění", body=str(exc))
+            return
+        selected = set(profile.permissions)
+        checks: list[tuple[Permission, ft.Checkbox]] = []
+        groups: list[ft.Control] = [
+            ft.Text(
+                f"Oprávnění · {user.code}",
+                size=theme.role_size(theme.TextRole.ACTION),
+                weight=ft.FontWeight.W_600,
+            )
+        ]
+        current_group = None
+        for item in PERMISSION_CATALOG:
+            if item.group != current_group:
+                current_group = item.group
+                groups.append(
+                    ft.Text(
+                        current_group,
+                        size=theme.role_size(theme.TextRole.META),
+                        weight=ft.FontWeight.W_700,
+                        color=theme.COLORS["text_secondary"],
+                    )
+                )
+            cb = ft.Checkbox(
+                label=item.title_cs,
+                value=item.permission in selected,
+                tooltip=item.description_cs,
+            )
+            checks.append((item.permission, cb))
+            groups.append(cb)
+
+        def _save(_e):
+            try:
+                perms = frozenset(p for p, cb in checks if cb.value)
+                self.vm.set_permissions(user.code, perms)
+                dialog.open = False
+                self.page.update()
+                message_dialog(
+                    self.page,
+                    title="Oprávnění",
+                    body=f"Uloženo pro {user.code} ({len(perms)} oprávnění).",
+                )
+                self._open_section("Uživatelé")
+            except Exception as exc:
+                message_dialog(self.page, title="Oprávnění", body=str(exc))
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(
+                "Upravit oprávnění",
+                size=theme.role_size(theme.TextRole.PRIMARY),
+                weight=ft.FontWeight.W_700,
+            ),
+            content=ft.Container(
+                content=ft.Column(groups, scroll=ft.ScrollMode.AUTO, spacing=4),
+                width=480,
+                height=460,
+            ),
+            actions=[
+                ft.TextButton(
+                    "Zrušit",
+                    on_click=lambda _e: setattr(dialog, "open", False) or self.page.update(),
+                ),
+                ft.FilledButton("Uložit", on_click=_save),
+            ],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
 
     def _new_user_dialog(self, _e) -> None:
         code = ft.TextField(label="Kód uživatele", text_size=theme.role_size(theme.TextRole.BODY))
@@ -244,15 +330,68 @@ class AdminScreen:
         self.page.update()
 
     def _render_permissions_help(self) -> None:
+        self.body.controls.append(
+            ft.Text(
+                "Uživatelská oprávnění",
+                size=theme.role_size(theme.TextRole.ACTION),
+                weight=ft.FontWeight.W_600,
+            )
+        )
+        self.body.controls.append(
+            ft.Text(
+                "Vyberte uživatele a upravte česká oprávnění. "
+                "SUP zůstává oddělený přes heslo administrátora.",
+                size=theme.role_size(theme.TextRole.BODY),
+                color=theme.COLORS["text_secondary"],
+            )
+        )
+        try:
+            users = self.vm.list_db_users()
+        except Exception as exc:
+            self.body.controls.append(empty_state("Oprávnění", str(exc)))
+            return
+        for user in users:
+            if user.is_admin or user.code.upper() == "SUP":
+                continue
+            profile = None
+            for item in self.state.identity_store.list_users() if self.state.identity_store else []:
+                if item.short_code.casefold() == user.code.casefold():
+                    profile = item
+                    break
+            count = len(profile.permissions) if profile is not None else 0
+            self.body.controls.append(
+                ft.ListTile(
+                    title=ft.Text(
+                        f"{user.code} · {user.display_name}",
+                        size=theme.role_size(theme.TextRole.BODY),
+                    ),
+                    subtitle=ft.Text(
+                        f"{count} oprávnění" if profile else "bez JLL profilu",
+                        size=theme.role_size(theme.TextRole.META),
+                    ),
+                    trailing=ft.TextButton(
+                        "Upravit",
+                        on_click=lambda _e, u=user: self._edit_permissions(u),
+                    ),
+                )
+            )
+        self.body.controls.append(ft.Divider())
+        self.body.controls.append(
+            ft.Text(
+                "Katalog oprávnění",
+                size=theme.role_size(theme.TextRole.ACTION),
+                weight=ft.FontWeight.W_600,
+            )
+        )
         current_group = None
         for item in PERMISSION_CATALOG:
             if item.group != current_group:
                 current_group = item.group
                 self.body.controls.append(
                     ft.Text(
-                        current_group.title() if current_group.isupper() else current_group,
-                        size=theme.role_size(theme.TextRole.ACTION),
-                        weight=ft.FontWeight.W_600,
+                        current_group,
+                        size=theme.role_size(theme.TextRole.META),
+                        weight=ft.FontWeight.W_700,
                     )
                 )
             self.body.controls.append(

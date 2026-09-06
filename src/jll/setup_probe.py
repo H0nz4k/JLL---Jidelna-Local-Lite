@@ -32,12 +32,25 @@ class StationOption:
 
 
 @dataclass(frozen=True, slots=True)
+class CategoryOption:
+    """Kategorie strávníků: zkratka + volitelný název z `public.kategor`."""
+
+    code: str
+    name: str | None = None
+
+    @property
+    def label(self) -> str:
+        return f"{self.code} — {self.name}" if self.name else self.code
+
+
+@dataclass(frozen=True, slots=True)
 class DatabaseProbe:
     system_identifier: str
     categories: tuple[str, ...]
     subject_name: str | None
     stations: tuple[StationOption, ...]
     subject_missing: bool = False
+    category_options: tuple[CategoryOption, ...] = ()
 
 
 def derive_site_id(site_name: str) -> str:
@@ -121,16 +134,26 @@ def probe_lab_database(
 
         category_rows = connection.execute(
             """
-            SELECT DISTINCT btrim(kategorie)
-            FROM public.stravnik
-            WHERE stav = 'A' AND COALESCE(deleted, false) = false
-              AND kategorie IS NOT NULL
-            ORDER BY btrim(kategorie)
+            SELECT DISTINCT btrim(s.kategorie) AS code,
+                   NULLIF(btrim(k.nazev), '') AS name
+            FROM public.stravnik AS s
+            LEFT JOIN public.kategor AS k
+              ON k.oznaceni = s.kategorie
+            WHERE s.stav = 'A'
+              AND COALESCE(s.deleted, false) = false
+              AND s.kategorie IS NOT NULL
+            ORDER BY btrim(s.kategorie)
             """
         ).fetchall()
-    categories = tuple(
-        str(row[0]) for row in category_rows if str(row[0]).strip()
+    category_options = tuple(
+        CategoryOption(
+            code=str(row[0]).strip(),
+            name=str(row[1]).strip() if row[1] else None,
+        )
+        for row in category_rows
+        if row[0] and str(row[0]).strip()
     )
+    categories = tuple(item.code for item in category_options)
     if not categories:
         raise ValueError("Databáze neobsahuje volitelné kategorie.")
     return DatabaseProbe(
@@ -139,4 +162,5 @@ def probe_lab_database(
         subject_name=subject_name,
         stations=stations,
         subject_missing=subject_name is None,
+        category_options=category_options,
     )

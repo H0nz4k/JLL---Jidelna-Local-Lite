@@ -90,7 +90,12 @@ def present_error(error: BaseException) -> SafeError:
     )
 
 
-def determine_action(meal: MealDay, menu: int) -> OrderAction:
+def determine_action(
+    meal: MealDay,
+    menu: int,
+    *,
+    bypass_order_deadlines: bool = False,
+) -> OrderAction:
     if not any(item.menu == menu for item in meal.options):
         raise OrderBusinessError(
             ErrorCode.MENU_NOT_AVAILABLE,
@@ -114,6 +119,12 @@ def determine_action(meal: MealDay, menu: int) -> OrderAction:
         None,
     )
     if availability is None or not availability.allowed:
+        if (
+            bypass_order_deadlines
+            and availability is not None
+            and availability.error_code is ErrorCode.DEADLINE_EXPIRED
+        ):
+            return action
         raise OrderBusinessError(
             availability.error_code
             if availability and availability.error_code
@@ -167,7 +178,11 @@ class OrderApplicationService:
                     ErrorCode.MENU_NOT_AVAILABLE,
                     "Typ stravy již není dostupný.",
                 )
-            action = determine_action(meal, menu)
+            action = determine_action(
+                meal,
+                menu,
+                bypass_order_deadlines=policy.bypass_order_deadlines,
+            )
             command = OrderCommand(
                 action=action,
                 evidcislo=evidcislo,

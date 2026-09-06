@@ -57,11 +57,13 @@ class OrderService:
         scope_provider: ScopeProvider,
         *,
         sleeper: Callable[[float], None] = time.sleep,
+        bypass_deadlines: Callable[[], bool] | None = None,
     ) -> None:
         self._connection_factory = connection_factory
         self.settings = settings
         self._scope_provider = scope_provider
         self._sleeper = sleeper
+        self._bypass_deadlines = bypass_deadlines or (lambda: False)
 
     def _authorize_command(self, command: OrderCommand) -> OrderCommand:
         try:
@@ -316,6 +318,7 @@ class OrderService:
                 target_calendar and target_calendar.get(command.datum.day)
             ),
             calendars=calendars,
+            allow_expired=self._bypass_deadlines(),
         )
 
     def _price(

@@ -24,6 +24,31 @@ from jll.sup_secret import SupSecretStore
 from jll.write_gates import DINER_WRITE_GATES
 
 
+def test_business_calendar_month_switch_helpers() -> None:
+    from datetime import date
+
+    from jll.read_models import BusinessCalendar
+
+    cal = BusinessCalendar(today=date(2026, 8, 30), period_month=8, period_year=2026)
+    assert BusinessCalendar.month_name_cs(8, title=True) == "Srpen"
+    assert BusinessCalendar.month_name_cs(9, title=True) == "Září"
+    assert cal.next_period_month == 9
+    assert cal.date_in_period(future=False).month == 8
+    assert cal.date_in_period(future=True).month == 9
+    assert cal.date_in_period(future=True).day == 1
+
+
+def test_business_calendar_labels() -> None:
+    from datetime import date
+
+    from jll.read_models import BusinessCalendar
+
+    cal = BusinessCalendar(today=date(2026, 9, 6), period_month=9, period_year=2026)
+    assert cal.today_label == "neděle 06.09.2026"
+    assert cal.period_label == "AM září 2026"
+    assert cal.header_label == "neděle 06.09.2026 - - AM září 2026"
+
+
 def test_theme_exposes_exactly_four_roles() -> None:
     assert theme.assert_four_roles() == ("ACTION", "BODY", "META", "PRIMARY")
 
@@ -72,6 +97,28 @@ def test_flet_app_imports() -> None:
     assert callable(app.main)
     assert diners.DinersScreen is not None
     assert setup.SetupScreen is not None
+
+
+def test_sup_password_allows_four_chars(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    class BrokenKeyring:
+        @staticmethod
+        def set_password(*_a, **_k):
+            raise RuntimeError("no keyring")
+
+        @staticmethod
+        def get_password(*_a, **_k):
+            return None
+
+        @staticmethod
+        def delete_password(*_a, **_k):
+            raise RuntimeError("no keyring")
+
+    monkeypatch.setattr("jll.sup_secret.keyring", BrokenKeyring)
+    store = SupSecretStore("LAB4", fallback_dir=tmp_path)
+    store.set_password("1234")
+    assert store.verify("1234")
+    with pytest.raises(ValueError, match="4"):
+        store.set_password("123")
 
 
 def test_sup_secret_persists_hashed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -230,10 +277,13 @@ def test_create_user_rejects_admin_template() -> None:
 
 
 def test_layout_ratios_stable() -> None:
-    assert theme.NAV_WIDTH == 196
+    assert theme.NAV_WIDTH == 0
+    assert theme.LIST_WIDTH == 220
     assert abs(theme.LIST_RATIO + theme.DETAIL_RATIO - 1.0) < 1e-9
     assert theme.WINDOW_WIDTH == 1366
     assert theme.WINDOW_HEIGHT == 768
+    assert theme.COLORS["block_border"]
+    assert theme.COLORS["hint_warning"]
 
 
 def test_reset_script_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

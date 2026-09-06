@@ -6,6 +6,45 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.2.0] – 2026-09-07
+
+Flet desktop UX pro vedoucí kuchyně: layout, sestavy, výdej, SUP modal,
+serverové „dnes“ a bypass deadline přihlášek.
+
+### Added
+
+- Horní navigační lišta ve Flet shellu (místo levého railu).
+- Kontinuální poslech čtečky na obrazovce Strávníci; placeholder
+  `čtečka nepřipojena` při nakonfigurovaném a nepřipojeném portu.
+- Klávesová navigace ve výsledcích hledání (↑/↓, Enter).
+- Sestavy: záložky Souhrn kategorií / Normy / Jmenný seznam, filtr dne,
+  Náhled (modal) a Export PDF.
+- Stav výdeje: karetní layout s velkými počty zbývajících porcí.
+- `SessionPolicy.bypass_order_deadlines` pro Flet `BusinessSession`
+  (termíny přihlášek/odhlášek neblokují vedoucí).
+- Ruční odběr a serving service ve Flet kartě strávníka.
+
+### Changed
+
+- Canonical verze `0.2.0`.
+- Business kalendář: `today` ze serveru (`clock_timestamp`); z parametry
+  jen `TentoMesic` / `TentoRok` (AM). `denobjednavky` se nepoužívá.
+- Otevření strávníka vždy skočí na serverové dnešek.
+- Hlavička: `JidelnaLocalLite v…` + provozovna a datumy na druhém řádku.
+- Administrace: nejdřív modal SUP přes šedé pozadí, teprve potom obsah.
+- Kompaktnější karta strávníka, jídelníček s cenami, výraznější okraje
+  bloků, grid všech dnů měsíce.
+
+### Fixed
+
+- Odhlášení/přihlášení po uplynutí studentského termínu ve Flet VED session.
+
+## [0.1.0] – 2026-09-03
+
+První Git baseline LAB aplikace (fáze 0A–3C) plus Flet/VED/SUP foundation,
+setup 3E a noční mise (čtečka, sestavy, karta strávníka). Canonical verze
+řady `0.1.x` před UX releasem `0.2.0`.
+
 ### Added
 
 - Flet desktop UI jako cílová prezentační vrstva (`src/jll/flet_ui/`,
@@ -15,85 +54,31 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 - Setup wizard ve Fletu (DB → provozovna/stanice → kategorie → SUP heslo).
 - `tools/reset_jll_first_run.sh` pro bezpečný reset lokálního first-run stavu.
 - Dokumentace `docs/JLL_FLET_ARCHITECTURE.md`.
-
-FÁZE 3E: setup / stanice / identity / české oprávnění a UX cleanup před
-merge noční branche. Bez nového tagu; canonical verze zůstává `0.1.0`.
-
-### Added (3E)
-
-- Katalog českých oprávnění (`permission_catalog.py`) se skupinami a
-  popisy; běžné GUI už nezobrazuje `diners.view` ani podobné identifikátory.
+- Katalog českých oprávnění (`permission_catalog.py`).
 - Setup načítá provozovnu z `public.parametry` (`BACKUP` / `NameSubject`) a
-  stanice z `public.stanice` (legacy `STANICE` = `nazev`).
-- Automatické interní `user_id` (`usr_<token>`); hospodářka zadává jen jméno,
-  kód uživatele a PIN.
-- Rozlišení oprávnění vs. write gate v tooltipech (bezpečnostně blokováno /
-  chybí oprávnění / čtečka není nastavena).
+  stanice z `public.stanice`.
+- Administrace → Čtečka, identifikace čipu, detailní karta strávníka,
+  denní sestavy a PDF export (extra `pdf`).
 
 ### Changed
 
-- Setup Wizard: české tlačítka Zpět/Další/Dokončit, kompaktnější kroky,
-  lidský souhrn (Provozovna / Stanice / Kód uživatele).
-- `Instance ID` v běžném UI nahrazeno pojmem `Stanice`; `Site ID` a `User ID`
-  z běžného UI zmizely.
-- Write gate tooltips jsou česky a vysvětlují bezpečnostní blokaci zápisu.
+- Setup Wizard: české tlačítka, kompaktnější kroky, lidský souhrn.
+- `Instance ID` → `Stanice` v běžném UI.
 
 ### Fixed
 
-- Setup Finish už nepadá na `'str' object has no attribute 'value'` při
-  ukládání oprávnění z Qt `UserRole`.
-- Neočekávané výjimky v setupu a adminu se logují; uživatel vidí lidskou
-  hlášku, ne Python traceback.
-
-Noční mise: čtečka, identifikace čipu, detailní karta strávníka, denní
-sestavy a vizuální stav výdeje.
-
-### Added (noční mise)
-
-- Administrace → Čtečka: výběr COM portu z OS enumerace, baudrate, ukončení
-  řádku, stav zařízení a uložení ne-secret nastavení do instalační
-  konfigurace. Uložení vyžaduje `admin.reader` i reautentizaci a nikdy se
-  nedotkne databáze.
-- Modální `Test čtečky` (`ChipReadDialog`) s promptem `Přiložte čip ke
-  čtečce…`, konečným timeoutem, zrušením a českými hláškami.
-- Tlačítko `Identifikovat čip` u vyhledávacího pole (`chips.view`). Načtený
-  kód se normalizuje a scope-safe lookup otevře kartu vlastníka jen uvnitř
-  `allowed_categories`.
-- Detailní read-only karta strávníka: Údaje, Finance a Čipy, se zvýrazněním
-  právě identifikovaného čipu.
-- Náhledy `Editovat strávníka` a `Nový strávník` se zakázaným `Uložit`
-  a vysvětlením, proč je zápis blokovaný.
-- Denní sestavy: jmenný seznam, jídelníček s porcemi, souhrn kategorií a
-  rozpad menu podle norem `A`–`D`, s volbou `Dnes`, `Zítra`, následujícího
-  varného dne nebo konkrétního data a s přepínačem společně/podle kategorií.
-- Volitelný PDF export sestav (`reports.print`, extra `pdf`). `reportlab` se
-  importuje až při exportu a font se hledá v systému nebo v
-  `JLL_REPORT_FONT`; žádný font se do repozitáře nekopíruje.
-- `OrderReadService.identify_chip`, `load_diner_profile`, `next_cooking_day`
-  a `load_daily_report`; agregace sestav v `src/jll/reports.py`.
-
-### Changed (noční mise)
-
-- Stav výdeje má panelový vzhled s dominantní hodnotou `ZBÝVÁ`; dokončený
-  řádek je odlišený zeleným pozadím z centrálního theme.
-- Jmenný seznam se řadí tak, aby diakritika nerozhazovala abecedu.
-
-### Fixed
-
-- Tlačítka `Identifikovat čip` a `Karta strávníka` se po úspěšném LAB guardu
-  správně povolí; dříve zůstala disabled až do další změny policy.
-- Volba dne v sestavách už nenačítá stejný den dvakrát.
+- Setup Finish `'str' object has no attribute 'value'`.
+- Povolení tlačítek Identifikovat čip / Karta strávníka po LAB guardu.
 
 ### Security
 
-- Identifikace čipu nepoužívá unscoped `public.nacti_cip`. Čip mimo scope
-  nevrací jméno, evidenční číslo, kategorii ani třídu.
-- Karta strávníka nečte PIN, rodné číslo, kontaktní ani přihlašovací údaje.
-- Vytvořené PDF obsahuje osobní údaje, proto je vyloučené z verzování.
+- Identifikace čipu nepoužívá unscoped `public.nacti_cip`.
+- Karta strávníka nečte PIN, rodné číslo ani kontaktní údaje.
+- Vytvořené PDF je vyloučené z verzování.
 
-## [0.1.0] – 2026-09-03
+## [0.1.0-baseline] – 2026-09-03
 
-První Git baseline LAB aplikace. Verze shrnuje stav po fázích 0A–3C.
+Původní shrnutí baseline po fázích 0A–3C (historický záznam).
 
 ### Added
 

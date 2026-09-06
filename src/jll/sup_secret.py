@@ -36,8 +36,8 @@ class SupSecretStore:
 
     def set_password(self, password: str) -> None:
         password = password.strip()
-        if len(password) < 6:
-            raise ValueError("SUP heslo musí mít alespoň 6 znaků.")
+        if len(password) < 4:
+            raise ValueError("SUP heslo musí mít alespoň 4 znaky.")
         digest = _hasher().hash(password)
         try:
             keyring.set_password(SERVICE_NAME, self._username, digest)

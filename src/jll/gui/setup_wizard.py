@@ -416,8 +416,15 @@ class SetupWizard(QWizard):
         selected = (
             self.initial_config.allowed_categories if self.initial_config else set()
         )
+        labels = {
+            item.code: item.label
+            for item in (
+                self.database_probe.category_options if self.database_probe else ()
+            )
+        }
         for category in categories:
-            item = QListWidgetItem(category)
+            item = QListWidgetItem(labels.get(category, category))
+            item.setData(Qt.UserRole, category)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
             item.setCheckState(
                 Qt.Checked if category in selected else Qt.Unchecked
@@ -445,11 +452,14 @@ class SetupWizard(QWizard):
         QMessageBox.warning(self, "Databázi nelze ověřit", message)
 
     def selected_categories(self) -> frozenset[str]:
-        return frozenset(
-            self.categories.item(index).text()
-            for index in range(self.categories.count())
-            if self.categories.item(index).checkState() == Qt.Checked
-        )
+        result: list[str] = []
+        for index in range(self.categories.count()):
+            item = self.categories.item(index)
+            if item.checkState() != Qt.Checked:
+                continue
+            code = item.data(Qt.UserRole)
+            result.append(str(code) if code else item.text())
+        return frozenset(result)
 
     def selected_permissions(self) -> frozenset[Permission]:
         return selected_permissions_from_list(self.permission_list)

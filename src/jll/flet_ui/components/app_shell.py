@@ -1,14 +1,14 @@
-"""Application shell: header + nav + workspace."""
+"""Application shell: header + top nav + workspace."""
 
 from __future__ import annotations
 
 import flet as ft
 
+from ...version import application_version
 from .. import theme
-from ..routes import Route
 from ..state import AppState
 from .badges import lab_badge
-from .navigation import navigation_rail
+from .navigation import navigation_bar
 from .user_menu import build_user_switch_dialog, user_chip
 
 
@@ -24,9 +24,18 @@ def app_shell(
     subject = "—"
     if state.config is not None:
         subject = state.config.site_name or state.config.site_id
-    # Prefer human provozovna label if stored as display via diagnostics
     if state.diagnostics is not None and getattr(state.diagnostics, "subject_name", None):
         subject = state.diagnostics.subject_name
+
+    calendar = state.business_calendar
+    if calendar is not None:
+        date_line = calendar.header_label
+    else:
+        date_line = "Datum —"
+
+    meta_size = theme.role_size(theme.TextRole.META)
+    meta_color = theme.COLORS["text_secondary"]
+    subtitle = f"{subject}   {date_line}"
 
     def _open_users(_e):
         dialog = build_user_switch_dialog(page, state, on_user_switched)
@@ -34,24 +43,48 @@ def app_shell(
         dialog.open = True
         page.update()
 
+    app_version = application_version()
+    brand = ft.Column(
+        [
+            ft.Text(
+                spans=[
+                    ft.TextSpan(
+                        "JidelnaLocalLite",
+                        ft.TextStyle(
+                            size=theme.role_size(theme.TextRole.PRIMARY),
+                            weight=ft.FontWeight.W_700,
+                            color=theme.COLORS["text_primary"],
+                        ),
+                    ),
+                    ft.TextSpan(
+                        f"  v{app_version}",
+                        ft.TextStyle(
+                            size=meta_size,
+                            weight=ft.FontWeight.W_400,
+                            color=meta_color,
+                        ),
+                    ),
+                ],
+                max_lines=1,
+                overflow=ft.TextOverflow.ELLIPSIS,
+            ),
+            ft.Text(
+                subtitle,
+                size=meta_size,
+                color=meta_color,
+                overflow=ft.TextOverflow.ELLIPSIS,
+                max_lines=1,
+            ),
+        ],
+        spacing=0,
+        tight=True,
+    )
+
     header = ft.Container(
         content=ft.Row(
             [
-                ft.Text(
-                    "JidelnaLocalLite",
-                    size=theme.role_size(theme.TextRole.PRIMARY),
-                    weight=ft.FontWeight.W_700,
-                    color=theme.COLORS["text_primary"],
-                ),
-                ft.Text(
-                    subject,
-                    size=theme.role_size(theme.TextRole.BODY),
-                    color=theme.COLORS["text_secondary"],
-                    expand=True,
-                    overflow=ft.TextOverflow.ELLIPSIS,
-                    max_lines=1,
-                    text_align=ft.TextAlign.CENTER,
-                ),
+                brand,
+                ft.Container(content=navigation_bar(state.route, on_route), expand=True),
                 user_chip(state, _open_users),
                 ft.IconButton(
                     icon=ft.Icons.MONITOR_HEART_OUTLINED,
@@ -60,30 +93,20 @@ def app_shell(
                 ),
                 lab_badge(),
             ],
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            spacing=theme.SPACING["md"],
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
-        padding=ft.padding.symmetric(horizontal=theme.SPACING["lg"], vertical=theme.SPACING["md"]),
+        padding=ft.padding.symmetric(
+            horizontal=theme.SPACING["lg"], vertical=theme.SPACING["sm"]
+        ),
         bgcolor=theme.COLORS["surface"],
-        border=ft.border.only(bottom=ft.BorderSide(1, theme.COLORS["border"])),
+        border=ft.border.only(bottom=ft.BorderSide(2, theme.COLORS["block_border"])),
     )
 
-    body = ft.Row(
-        [
-            ft.Container(
-                content=navigation_rail(state.route, on_route),
-                width=theme.NAV_WIDTH,
-                bgcolor=theme.COLORS["nav"],
-            ),
-            ft.Container(
-                content=workspace,
-                expand=True,
-                bgcolor=theme.COLORS["background"],
-                padding=theme.SPACING["lg"],
-            ),
-        ],
+    body = ft.Container(
+        content=workspace,
         expand=True,
-        spacing=0,
-        vertical_alignment=ft.CrossAxisAlignment.STRETCH,
+        bgcolor=theme.COLORS["background"],
+        padding=theme.SPACING["md"],
     )
     return ft.Column([header, body], expand=True, spacing=0)

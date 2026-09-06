@@ -18,6 +18,7 @@ from ..identity_store import IdentityStore
 from ..orders.service import OrderService
 from ..policy import Permission
 from ..read_service import OrderReadService
+from ..serving_service import ServingService
 from ..sup_secret import SupSecretStore
 from ..version import application_version
 from . import theme
@@ -112,6 +113,7 @@ class FletAppController:
             pool.connection,
             config.order_settings,
             scope_for_order,
+            bypass_deadlines=lambda: business.current_policy().bypass_order_deadlines,
         )
         self.state.application_service = OrderApplicationService(
             order_service,
@@ -124,10 +126,24 @@ class FletAppController:
             baud_rate=config.reader_baud_rate,
             line_end=config.reader_line_end,
         )
+        self.state.serving_service = ServingService(
+            pool.connection,
+            business.current_policy,
+        )
         try:
             self.state.diagnostics = self.state.read_service.verify_lab()
         except Exception:
             self.state.diagnostics = None
+        try:
+            self.state.business_calendar = self.state.read_service.load_business_calendar()
+            if self.state.selected_day is None:
+                self.state.selected_day = self.state.business_calendar.today
+        except Exception:
+            self.state.business_calendar = None
+            try:
+                self.state.selected_day = self.state.read_service.server_today()
+            except Exception:
+                pass
 
     def _show_setup(self) -> None:
         self.state.needs_setup = True
@@ -147,6 +163,15 @@ class FletAppController:
         self._render_shell()
 
     def _render_shell(self) -> None:
+        self.state.stop_chip_listen()
+        # Hlavičkové „dnes“ vždy ze serveru (AM měsíc/rok zůstává z parametry).
+        if self.state.read_service is not None:
+            try:
+                self.state.business_calendar = (
+                    self.state.read_service.load_business_calendar()
+                )
+            except Exception:
+                pass
         workspace = self._workspace()
         shell = app_shell(
             self.page,
@@ -159,15 +184,24 @@ class FletAppController:
         self.page.controls.clear()
         self.page.add(shell)
         self.page.update()
+        if self.state.route is Route.DINERS and isinstance(
+            getattr(self, "_diners_screen", None), DinersScreen
+        ):
+            self._diners_screen.focus_search()
 
     def _workspace(self) -> ft.Control:
         if self.state.route is Route.DINERS:
-            return DinersScreen(self.page, self.state).control()
+            self._diners_screen = DinersScreen(self.page, self.state)
+            return self._diners_screen.control()
+        self._diners_screen = None
         if self.state.route is Route.SERVING:
             return ServingScreen(self.page, self.state).control()
         if self.state.route is Route.REPORTS:
             return ReportsScreen(self.page, self.state).control()
         if self.state.route is Route.ADMIN:
+            business = self.state.business
+            if business is not None and not business.sup_unlocked():
+                return ft.Container(expand=True, bgcolor=theme.COLORS["background"])
             return AdminScreen(
                 self.page,
                 self.state,
@@ -176,8 +210,84 @@ class FletAppController:
         return ft.Text("Neznámá obrazovka")
 
     def _set_route(self, route: Route) -> None:
+        if route is Route.ADMIN:
+            business = self.state.business
+            if business is not None and not business.sup_unlocked():
+                self._prompt_sup_for_admin()
+                return
         self.state.route = route
         self._render_shell()
+
+    def _prompt_sup_for_admin(self) -> None:
+        """Modal SUP heslo přes šedé pozadí; teprve po ověření otevře Administraci."""
+
+        previous = self.state.route
+        self.state.route = Route.ADMIN
+        self._render_shell()
+        password = ft.TextField(
+            label="Heslo administrátora SUP",
+            password=True,
+            can_reveal_password=True,
+            autofocus=True,
+            text_size=theme.role_size(theme.TextRole.BODY),
+            on_submit=lambda _e: _unlock(),
+        )
+
+        def _close_dialog() -> None:
+            dialog.open = False
+            self.page.update()
+
+        def _cancel(_e=None) -> None:
+            _close_dialog()
+            self.state.route = previous if previous is not Route.ADMIN else Route.DINERS
+            self._render_shell()
+
+        def _unlock(_e=None) -> None:
+            business = self.state.business
+            if business is None:
+                message_dialog(self.page, title="SUP", body="Business session není dostupná.")
+                return
+            if not business.unlock_sup(password.value or ""):
+                message_dialog(
+                    self.page,
+                    title="SUP",
+                    body="Neplatné heslo administrátora.",
+                )
+                return
+            _close_dialog()
+            self.state.route = Route.ADMIN
+            self._render_shell()
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            barrier_color="#00000099",
+            title=ft.Text(
+                "Ověření SUP",
+                size=theme.role_size(theme.TextRole.PRIMARY),
+                weight=ft.FontWeight.W_700,
+            ),
+            content=ft.Column(
+                [
+                    ft.Text(
+                        "Citlivé administrativní akce vyžadují heslo administrátora SUP.",
+                        size=theme.role_size(theme.TextRole.BODY),
+                        color=theme.COLORS["text_secondary"],
+                    ),
+                    password,
+                ],
+                tight=True,
+                spacing=theme.SPACING["md"],
+                width=420,
+            ),
+            actions=[
+                ft.TextButton("Zrušit", on_click=_cancel),
+                ft.FilledButton("Ověřit", on_click=_unlock),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
 
     def _on_user_switched(self) -> None:
         # Rebuild services against new policy/actor closures (same objects, methods refresh)
@@ -199,6 +309,9 @@ class FletAppController:
         ]
         if diag is not None:
             lines.append(f"system_identifier: {diag.system_identifier}")
+        cal = self.state.business_calendar
+        if cal is not None:
+            lines.append(f"Kalendář: {cal.header_label}")
         message_dialog(self.page, title="Diagnostika", body="\n".join(lines))
 
 
