@@ -98,8 +98,10 @@ DINER_WRITE_GATES: dict[str, WriteGate] = {
 SERVING_WRITE_GATES: dict[str, WriteGate] = {
     "record_pickup": WriteGate(
         ContractStatus.PROVEN,
-        "LAB identity + category scope + aktivní strávník + prihlaska.id; "
-        "write pouze přes public.zapis_odber bez Python fallbacku.",
+        "LAB identity + scope + aktivní strávník + prihlaska.id; write jen "
+        "public.zapis_odber. Charakterizace LAB: úspěšný zápis O do odebral, "
+        "duplicate i concurrent vrátí true (idempotentní značka), rollback "
+        "vnější transakce vrátí stav. Bez mutual-exclusion locku v DB.",
         "Zapsat odběr",
     ),
 }

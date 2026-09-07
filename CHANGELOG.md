@@ -24,6 +24,8 @@ Flet UX patch + JídelnaSQL logic parity/safety:
 - `docs/JLL_JIDELNASQL_PARITY_AUDIT_0.2.1.md`.
 - Parity unit/integration testy (periodická kategorie, unsubscribe,
   serving, legacy users, setup kategor).
+- Final hardening: reálný `zapis_odber` write/duplicate/concurrency/rollback,
+  DB `user_role` clone parity, order-write cena z `prihlas.kategorie`.
 
 ### Changed
 
