@@ -6,6 +6,27 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.4.3] – 2026-09-08
+
+Desktop UI/UX polish (content-driven widths):
+
+- kompaktní 3řádkový header karty strávníka (jméno+kredit, meta+čip, hlavní akce);
+- chip lifecycle přesunut do modalu Detail čipu;
+- Administrace: content-driven šířky, aktivní nav, kompaktní Uživatelé/Oprávnění;
+- Vzhled: procenta bez interních názvů textových rolí;
+- ruční odběr bez filtru výdejního okna (explicitní provozní požadavek).
+
+### Added
+
+- `docs/JLL_UI_POLISH_SPEC_0.4.3.md`
+- structural tests `tests/unit/test_ui_layout_0_4_3.py`
+- `ServingService.meals_ready_manual` / `stravy_k_manualni_odber`
+
+### Changed
+
+- Canonical verze `0.4.3`.
+- Stav výdeje / Sestavy: užší content panel (bez full-width stretch).
+
 ## [0.4.2] – 2026-09-08
 
 Automatická detekce ELATEC RFID čtečky:
