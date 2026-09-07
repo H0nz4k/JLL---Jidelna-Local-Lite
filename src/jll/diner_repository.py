@@ -210,12 +210,13 @@ class DinerRepository:
         evidcislo: int,
         event_type: str = "S",
     ) -> bool:
-        today = date.today().strftime("%d%m%Y")
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
                 SELECT public.insert_udalost(
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s,
+                    to_char(CURRENT_DATE, 'DDMMYYYY'),
+                    %s, %s
                 ) AS result
                 """,
                 (
@@ -225,7 +226,6 @@ class DinerRepository:
                     note[:50],
                     client_version[:10],
                     evidcislo,
-                    today,
                     None,
                     None,
                 ),
