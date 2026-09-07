@@ -356,6 +356,7 @@ class AdminDialog(QDialog):
     def _save_reader_settings(self) -> None:
         try:
             updated = self.service.save_reader_settings(
+                mode="manual",
                 port=self.reader_port.currentData(),
                 baud_rate=int(self.reader_baud.currentData()),
                 line_end=str(self.reader_line_end.currentData()),

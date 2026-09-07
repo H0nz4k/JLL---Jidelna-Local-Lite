@@ -117,6 +117,8 @@ def build_window(
         )
         chip_reader = build_chip_reader(
             config.reader_port,
+            mode=config.reader_mode,
+            preferred_serial=config.reader_device_serial,
             baud_rate=config.reader_baud_rate,
             line_end=config.reader_line_end,
         )

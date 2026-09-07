@@ -37,13 +37,14 @@ deadline, exkluzivitu variant a audit.
 
 ## Aktuální stav
 
-Verze `0.4.1` (Flet desktop UX). Aplikace se spouští pouze proti lokální
+Verze `0.4.2` (Flet desktop UX). Aplikace se spouští pouze proti lokální
 testovací databázi, jejíž identitu ověřuje LAB guard. Cílové UI je Flet;
 PySide6 zůstává referenční. Backend, identity, oprávnění, objednávkový
-write, create/edit strávníka, chip lifecycle (deposit=0) a historie /
-ne-hotovostní zaúčtování plateb jsou implementované. Záloha za čip > 0 Kč
-(hotovostní legacy path), hotovost/EET doklad, refund a homebanking vazba
-zůstávají fail-closed. Category change zůstává PARTIAL.
+write, create/edit strávníka, chip lifecycle (deposit=0), historie /
+ne-hotovostní platby a **automatická detekce ELATEC čtečky** jsou
+implementované. Záloha za čip > 0 Kč (hotovostní legacy path), hotovostní
+doklad, refund a homebanking vazba zůstávají fail-closed. Category change
+zůstává PARTIAL.
 
 ## Hlavní funkce
 
@@ -77,12 +78,14 @@ zůstávají fail-closed. Category change zůstává PARTIAL.
 - Write: přidělit / vrátit / blokovat / odblokovat / ztracený (PROVEN).
 - Záloha `CenaZaPrvniCip=0` bez finance; `>0` fail-closed (legacy hotovost
   + `uctenky_kasy` není PROVEN — banka není náhrada). Převod BLOCKED.
-- `ChipReader` abstrakce s fake i sériovým adapterem a explicitním portem.
+- `ChipReader` abstrakce s fake i sériovým adapterem; default **Automaticky –
+  ELATEC** (COM se resolve za běhu). Ruční COM zůstává v Administraci.
 - Ve Flet UI čtečka poslouchá na pozadí: přiložení čipu otevře kartu
-  vlastníka. Pokud je port v nastavení, ale zařízení není připojené,
-  search pole ukáže světle červené `čtečka nepřipojena`.
-- Administrace → Čtečka: COM port z OS enumerace, baudrate, ukončení řádku
-  a test čtečky. Uložení vyžaduje `admin.reader` i SUP reauth.
+  vlastníka. Pokud je očekávaná čtečka odpojená, search pole ukáže světle
+  červené `čtečka nepřipojena`.
+- Administrace → Čtečka: režim AUTO/MANUAL, detekované zařízení, baudrate,
+  test. Uložení vyžaduje `admin.reader` i SUP reauth.
+  Docs: `docs/JLL_ELATEC_AUTO_DETECTION_0.4.2.md`.
 
 ### Platby
 

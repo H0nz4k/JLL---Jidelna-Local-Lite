@@ -122,7 +122,9 @@ class AdminService:
     def save_reader_settings(
         self,
         *,
+        mode: str = "manual",
         port: str | None,
+        device_serial: str | None = None,
         baud_rate: int,
         line_end: str,
     ) -> LabConfig:
@@ -137,9 +139,14 @@ class AdminService:
             raise RuntimeError(
                 "Instalační konfigurace není dostupná, nastavení nelze uložit."
             )
+        normalized = (mode or "manual").strip().casefold()
         updated = dataclasses.replace(
             self._lab_config,
+            reader_mode=normalized,
             reader_port=(port.strip() or None) if port else None,
+            reader_device_serial=(
+                (device_serial.strip() or None) if device_serial else None
+            ),
             reader_baud_rate=int(baud_rate),
             reader_line_end=line_end,
         )

@@ -144,6 +144,7 @@ def test_reader_settings_require_reauthentication(tmp_path: Path) -> None:
     )
     with pytest.raises(AdminReauthenticationRequired):
         service.save_reader_settings(
+            mode="manual",
             port="COM5",
             baud_rate=19_200,
             line_end="\r",
@@ -163,6 +164,7 @@ def test_reader_settings_save_only_to_local_installation_config(
     )
     service.reauthenticate("2468")
     updated = service.save_reader_settings(
+        mode="manual",
         port="COM5",
         baud_rate=115_200,
         line_end="\r\n",
@@ -187,7 +189,7 @@ def test_reader_settings_reject_invalid_values(tmp_path: Path) -> None:
     )
     service.reauthenticate("2468")
     with pytest.raises(ValueError):
-        service.save_reader_settings(port="COM5", baud_rate=0, line_end="\r")
+        service.save_reader_settings(mode="manual", port="COM5", baud_rate=0, line_end="\r")
     assert load_lab_config(path).reader_port is None
 
 
@@ -199,6 +201,7 @@ def test_reader_settings_are_read_only_without_installation_config(
     service.reauthenticate("2468")
     with pytest.raises(RuntimeError):
         service.save_reader_settings(
+            mode="manual",
             port="COM5",
             baud_rate=19_200,
             line_end="\r",

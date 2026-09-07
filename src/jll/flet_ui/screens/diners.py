@@ -63,19 +63,38 @@ class DinersScreen:
 
     def _reader_configured(self) -> bool:
         cfg = self.state.config
-        return bool(cfg and cfg.reader_port and str(cfg.reader_port).strip())
+        if cfg is None:
+            return False
+        if cfg.reader_mode == "auto_elatec":
+            return True
+        return bool(cfg.reader_port and str(cfg.reader_port).strip())
 
     def _reader_connected(self) -> bool:
         if not self._reader_configured():
             return False
-        port = str(self.state.config.reader_port).strip()
-        ports = {item.device.upper() for item in available_serial_ports()}
-        if port.upper() not in ports:
-            return False
         reader = self.state.chip_reader
         if reader is None or isinstance(reader, UnavailableChipReader):
             return False
-        return True
+        cfg = self.state.config
+        assert cfg is not None
+        if cfg.reader_mode == "auto_elatec":
+            try:
+                from ...chip_reader import AutoElatecChipReader, ReaderState
+                from ...reader_discovery import ReaderDiscoveryStatus
+
+                if isinstance(reader, AutoElatecChipReader):
+                    snap = reader.discovery_snapshot()
+                    return snap.status is ReaderDiscoveryStatus.FOUND
+                status = reader.status()
+                return status.state not in {
+                    ReaderState.DISCONNECTED,
+                    ReaderState.ERROR,
+                }
+            except Exception:
+                return False
+        port = str(cfg.reader_port or "").strip()
+        ports = {item.device.upper() for item in available_serial_ports()}
+        return bool(port) and port.upper() in ports
 
     def _apply_reader_hint(self) -> None:
         if self._reader_configured() and not self._reader_connected():

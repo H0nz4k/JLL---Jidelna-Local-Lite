@@ -115,16 +115,208 @@ class AdminScreen:
         elif name == "Info":
             self._render_info()
         elif name == "Čtečka":
-            cfg = self.state.config
-            self.body.controls.append(
-                ft.Text(
-                    f"Port: {cfg.reader_port or 'nenastaven'}\nBaud: {cfg.reader_baud_rate}"
-                    if cfg
-                    else "—",
-                    size=theme.role_size(theme.TextRole.BODY),
-                )
-            )
+            self._render_reader()
         self.page.update()
+
+    def _render_reader(self) -> None:
+        from ...chip_reader import (
+            AutoElatecChipReader,
+            UnavailableChipReader,
+            available_serial_ports,
+            build_chip_reader,
+        )
+        from ...reader_discovery import ReaderDiscoveryStatus, select_elatec_reader
+
+        cfg = self.state.config
+        if cfg is None:
+            self.body.controls.append(ft.Text("Config není načten."))
+            return
+
+        mode = cfg.reader_mode
+        discovery = select_elatec_reader(preferred_serial=cfg.reader_device_serial)
+        reader = self.state.chip_reader
+        if isinstance(reader, AutoElatecChipReader):
+            status = reader.status()
+        elif reader is not None and not isinstance(reader, UnavailableChipReader):
+            status = reader.status()
+        else:
+            status = None
+
+        if discovery.status is ReaderDiscoveryStatus.FOUND and discovery.selected:
+            state_text = "Připojena"
+            device_lines = [
+                f"Zařízení: {discovery.selected.description or discovery.selected.product or '—'}",
+                f"Výrobce: {discovery.selected.manufacturer or '—'}",
+                f"Port nyní: {discovery.selected.device}",
+                f"Sériové číslo: {discovery.selected.serial_number or '—'}",
+            ]
+        elif discovery.status is ReaderDiscoveryStatus.AMBIGUOUS:
+            state_text = "Vyžaduje výběr"
+            device_lines = [discovery.message]
+            for match in discovery.matches:
+                device_lines.append(f"• {match.label}")
+        else:
+            state_text = "Nepřipojena"
+            device_lines = [discovery.message]
+
+        mode_group = ft.RadioGroup(
+            value=mode,
+            content=ft.Column(
+                [
+                    ft.Radio(value="auto_elatec", label="Automaticky – ELATEC"),
+                    ft.Radio(value="manual", label="Ručně vybrat COM port"),
+                ],
+                tight=True,
+            ),
+        )
+        ports = available_serial_ports()
+        port_dd = ft.Dropdown(
+            label="COM port",
+            options=[ft.dropdown.Option(key="", text="(nenastaveno)")]
+            + [ft.dropdown.Option(key=p.device, text=p.label) for p in ports],
+            value=cfg.reader_port or "",
+            disabled=mode != "manual",
+        )
+        baud_dd = ft.Dropdown(
+            label="Baud",
+            options=[
+                ft.dropdown.Option(key=str(b), text=str(b))
+                for b in (9600, 19200, 38400, 57600, 115200)
+            ],
+            value=str(cfg.reader_baud_rate),
+        )
+        line_dd = ft.Dropdown(
+            label="Ukončení řádku",
+            options=[
+                ft.dropdown.Option(key="CR", text="CR"),
+                ft.dropdown.Option(key="LF", text="LF"),
+                ft.dropdown.Option(key="CRLF", text="CRLF"),
+            ],
+            value={"\r": "CR", "\n": "LF", "\r\n": "CRLF"}.get(
+                cfg.reader_line_end, "CR"
+            ),
+        )
+
+        def _on_mode_change(_e=None) -> None:
+            port_dd.disabled = mode_group.value != "manual"
+            self.page.update()
+
+        mode_group.on_change = _on_mode_change
+
+        def _save(_e=None) -> None:
+            business = self.state.business
+            if business is None:
+                return
+            try:
+                from ...config import save_lab_config
+                import dataclasses
+
+                line_map = {"CR": "\r", "LF": "\n", "CRLF": "\r\n"}
+                selected_mode = mode_group.value or "auto_elatec"
+                updated = dataclasses.replace(
+                    cfg,
+                    reader_mode=selected_mode,
+                    reader_port=(port_dd.value or None)
+                    if selected_mode == "manual"
+                    else None,
+                    reader_device_serial=cfg.reader_device_serial,
+                    reader_baud_rate=int(baud_dd.value or 19200),
+                    reader_line_end=line_map.get(line_dd.value or "CR", "\r"),
+                )
+                if Permission.ADMIN_READER not in business.current_policy().permissions:
+                    message_dialog(
+                        self.page,
+                        title="Čtečka",
+                        body="Nemáte oprávnění nastavit čtečku.",
+                    )
+                    return
+                save_lab_config(updated, self.state.config_path)
+                self.state.config = updated
+                if self.state.chip_reader is not None:
+                    try:
+                        self.state.chip_reader.stop()
+                    except Exception:
+                        pass
+                self.state.chip_reader = build_chip_reader(
+                    updated.reader_port,
+                    mode=updated.reader_mode,
+                    preferred_serial=updated.reader_device_serial,
+                    baud_rate=updated.reader_baud_rate,
+                    line_end=updated.reader_line_end,
+                )
+                message_dialog(
+                    self.page,
+                    title="Čtečka",
+                    body="Nastavení uloženo.",
+                )
+                self._open_section("Čtečka")
+            except Exception as exc:
+                message_dialog(self.page, title="Čtečka", body=str(exc))
+
+        def _test(_e=None) -> None:
+            test_reader = self.state.chip_reader
+            if test_reader is None or isinstance(test_reader, UnavailableChipReader):
+                message_dialog(
+                    self.page,
+                    title="Test čtečky",
+                    body="Čtečka není dostupná.",
+                )
+                return
+            try:
+                test_reader.start()
+                chip = test_reader.read_once(timeout_seconds=8.0)
+                message_dialog(
+                    self.page,
+                    title="Test čtečky",
+                    body=f"Načteno: ••••{chip.code[-4:]}\nPort: {chip.device.port or '—'}",
+                )
+            except Exception as exc:
+                message_dialog(self.page, title="Test čtečky", body=str(exc))
+            finally:
+                try:
+                    test_reader.stop()
+                except Exception:
+                    pass
+
+        status_line = status.message if status else state_text
+        self.body.controls.extend(
+            [
+                ft.Text(
+                    "Čtečka",
+                    size=theme.role_size(theme.TextRole.ACTION),
+                    weight=ft.FontWeight.W_600,
+                ),
+                ft.Text(
+                    f"Režim: {'Automaticky – ELATEC' if mode == 'auto_elatec' else 'Ruční COM'}",
+                    size=theme.role_size(theme.TextRole.BODY),
+                ),
+                ft.Text(
+                    f"Stav: {state_text}",
+                    size=theme.role_size(theme.TextRole.BODY),
+                    weight=ft.FontWeight.W_600,
+                ),
+                ft.Text(
+                    "\n".join(device_lines),
+                    size=theme.role_size(theme.TextRole.BODY),
+                ),
+                ft.Text(
+                    f"Runtime: {status_line}",
+                    size=theme.role_size(theme.TextRole.META),
+                    color=theme.COLORS["text_secondary"],
+                ),
+                mode_group,
+                port_dd,
+                baud_dd,
+                line_dd,
+                ft.Row(
+                    [
+                        ft.FilledButton("Uložit", on_click=_save),
+                        ft.OutlinedButton("Test čtečky", on_click=_test),
+                    ],
+                    spacing=theme.SPACING["sm"],
+                ),
+            ]
+        )
 
     def _render_info(self) -> None:
         cfg = self.state.config

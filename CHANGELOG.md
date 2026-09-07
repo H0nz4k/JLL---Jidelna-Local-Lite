@@ -6,6 +6,25 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.4.2] – 2026-09-08
+
+Automatická detekce ELATEC RFID čtečky:
+
+- `reader_mode=auto_elatec` (default nových instalací);
+- matching podle `manufacturer` / HIL VID:PID `09D8:0420`;
+- hotplug a změna COM bez přenastavení;
+- Flet Administrace → Čtečka: AUTO/MANUAL;
+- legacy config s `reader_port` zůstává `manual`.
+
+### Added
+
+- `reader_discovery.py`, `AutoElatecChipReader`
+- `docs/JLL_ELATEC_AUTO_DETECTION_0.4.2.md`
+
+### Changed
+
+- Canonical verze `0.4.2`.
+
 ## [0.4.1] – 2026-09-07
 
 Payment parity hardening:

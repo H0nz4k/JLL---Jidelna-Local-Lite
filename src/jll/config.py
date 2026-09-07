@@ -36,7 +36,9 @@ class LabConfig:
     business_timezone: str
     strict_config_lock: bool
     search_limit: int = 30
+    reader_mode: str = "auto_elatec"
     reader_port: str | None = None
+    reader_device_serial: str | None = None
     reader_baud_rate: int = 19_200
     reader_line_end: str = "\r"
 
@@ -62,6 +64,10 @@ class LabConfig:
             raise ValueError("user nesmí být prázdný.")
         if not 1 <= self.search_limit <= 100:
             raise ValueError("search_limit musí být v rozsahu 1..100.")
+        mode = (self.reader_mode or "").strip().casefold()
+        if mode not in {"auto_elatec", "manual"}:
+            raise ValueError("reader_mode musí být auto_elatec nebo manual.")
+        object.__setattr__(self, "reader_mode", mode)
         if self.reader_port is not None:
             reader_port = self.reader_port.strip()
             if (
@@ -71,6 +77,15 @@ class LabConfig:
             ):
                 raise ValueError("reader_port nemá platný formát.")
             object.__setattr__(self, "reader_port", reader_port)
+        if self.reader_device_serial is not None:
+            serial = self.reader_device_serial.strip()
+            if (
+                not serial
+                or len(serial) > 128
+                or any(not char.isprintable() for char in serial)
+            ):
+                raise ValueError("reader_device_serial nemá platný formát.")
+            object.__setattr__(self, "reader_device_serial", serial)
         if not 1 <= self.reader_baud_rate <= 4_000_000:
             raise ValueError("reader_baud_rate není platná.")
         if self.reader_line_end not in {"\r", "\n", "\r\n"}:
@@ -160,6 +175,17 @@ def load_lab_config(path: str | Path) -> LabConfig:
         raise ValueError("allowed_categories musí být seznam.")
     if not isinstance(raw["strict_config_lock"], bool):
         raise ValueError("strict_config_lock musí být boolean.")
+    # Legacy bez reader_mode: explicitní COM → manual (bez překvapivé změny).
+    raw_mode = raw.get("reader_mode")
+    if raw_mode is None:
+        reader_mode = (
+            "manual"
+            if raw.get("reader_port") is not None
+            and str(raw.get("reader_port") or "").strip()
+            else "auto_elatec"
+        )
+    else:
+        reader_mode = str(raw_mode)
     return LabConfig(
         site_name=str(raw["site_name"]),
         site_id=str(raw["site_id"]),
@@ -174,9 +200,15 @@ def load_lab_config(path: str | Path) -> LabConfig:
         business_timezone=str(raw["business_timezone"]),
         strict_config_lock=raw["strict_config_lock"],
         search_limit=int(raw.get("search_limit", 30)),
+        reader_mode=reader_mode,
         reader_port=(
             str(raw["reader_port"])
             if raw.get("reader_port") is not None
+            else None
+        ),
+        reader_device_serial=(
+            str(raw["reader_device_serial"])
+            if raw.get("reader_device_serial") is not None
             else None
         ),
         reader_baud_rate=int(raw.get("reader_baud_rate", 19_200)),
@@ -201,7 +233,9 @@ def save_lab_config(config: LabConfig, path: str | Path) -> None:
         "business_timezone": config.business_timezone,
         "strict_config_lock": config.strict_config_lock,
         "search_limit": config.search_limit,
+        "reader_mode": config.reader_mode,
         "reader_port": config.reader_port,
+        "reader_device_serial": config.reader_device_serial,
         "reader_baud_rate": config.reader_baud_rate,
         "reader_line_end": config.reader_line_end,
     }

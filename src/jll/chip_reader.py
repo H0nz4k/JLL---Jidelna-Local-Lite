@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
+from typing import Any
 
 import serial
 from serial.tools import list_ports
@@ -202,8 +203,8 @@ class UnavailableChipReader(ChipReader):
 class SerialLineChipReader(ChipReader):
     """Adapter pro doložený referenční serial-line protokol.
 
-    Port se nikdy nevybírá automaticky. Musí být explicitně nakonfigurovaný;
-    enumerace COM/USB slouží jen k ověření identity a diagnostice.
+    V manuálním režimu musí být port explicitní. Automatický výběr ELATEC
+    řeší `AutoElatecChipReader` / `build_chip_reader(mode=auto_elatec)`.
     """
 
     def __init__(
@@ -410,11 +411,25 @@ class SerialPortOption:
     device: str
     description: str | None = None
     manufacturer: str | None = None
+    product: str | None = None
+    serial_number: str | None = None
+    vid: int | None = None
+    pid: int | None = None
+    hwid: str | None = None
 
     @property
     def label(self) -> str:
-        detail = self.description or self.manufacturer
-        return f"{self.device} — {detail}" if detail else self.device
+        parts = [self.device]
+        detail = self.description or self.product
+        if detail:
+            marker = f"({self.device})"
+            if detail.endswith(marker):
+                detail = detail[: -len(marker)].strip()
+            if detail:
+                parts.append(detail)
+        if self.manufacturer:
+            parts.append(self.manufacturer)
+        return " — ".join(parts)
 
 
 def available_serial_ports() -> tuple[SerialPortOption, ...]:
@@ -423,12 +438,13 @@ def available_serial_ports() -> tuple[SerialPortOption, ...]:
     options = [
         SerialPortOption(
             device=str(port.device),
-            description=_optional_port_text(
-                getattr(port, "description", None)
-            ),
-            manufacturer=_optional_port_text(
-                getattr(port, "manufacturer", None)
-            ),
+            description=_optional_port_text(getattr(port, "description", None)),
+            manufacturer=_optional_port_text(getattr(port, "manufacturer", None)),
+            product=_optional_port_text(getattr(port, "product", None)),
+            serial_number=_optional_port_text(getattr(port, "serial_number", None)),
+            vid=getattr(port, "vid", None),
+            pid=getattr(port, "pid", None),
+            hwid=_optional_port_text(getattr(port, "hwid", None)),
         )
         for port in list_ports.comports()
         if str(getattr(port, "device", "")).strip()
@@ -436,27 +452,213 @@ def available_serial_ports() -> tuple[SerialPortOption, ...]:
     return tuple(sorted(options, key=lambda item: item.device.casefold()))
 
 
+class AutoElatecChipReader(ChipReader):
+    """Serial reader s dynamickým resolve aktuálního COM ELATEC zařízení."""
+
+    def __init__(
+        self,
+        *,
+        preferred_serial: str | None = None,
+        baud_rate: int = 19_200,
+        line_end: bytes = b"\r",
+        duplicate_debounce_seconds: float = 0.75,
+        reconnect_attempts: int = 2,
+        rediscovery_seconds: float = 2.0,
+        port_lister: Callable[[], Any] | None = None,
+    ) -> None:
+        from .reader_discovery import select_elatec_reader
+
+        self._select = select_elatec_reader
+        self._preferred_serial = (
+            preferred_serial.strip() if preferred_serial and preferred_serial.strip() else None
+        )
+        self._baud_rate = baud_rate
+        self._line_end = line_end
+        self._debounce = duplicate_debounce_seconds
+        self._reconnect_attempts = reconnect_attempts
+        self._rediscovery_seconds = max(1.0, min(3.0, float(rediscovery_seconds)))
+        self._port_lister = port_lister
+        self._running = False
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._inner: SerialLineChipReader | None = None
+        self._last_status_message = "ELATEC čtečka není připojena."
+        self._last_read_at: datetime | None = None
+
+    def start(self) -> None:
+        with self._lock:
+            self._stop.clear()
+            self._running = True
+            self._sync_inner_locked()
+
+    def stop(self) -> None:
+        self._stop.set()
+        with self._lock:
+            self._running = False
+            if self._inner is not None:
+                self._inner.stop()
+                self._inner = None
+
+    def read_once(
+        self,
+        *,
+        timeout_seconds: float,
+        cancel_event: threading.Event | None = None,
+    ) -> ChipRead:
+        if not 0 < timeout_seconds <= 30:
+            raise ValueError("Reader timeout musí být v rozsahu (0, 30].")
+        if not self._running:
+            raise ChipReaderError("Čtečka není spuštěná.")
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            if self._stop.is_set() or (
+                cancel_event is not None and cancel_event.is_set()
+            ):
+                raise ChipReaderCancelled("Čtení bylo zrušeno.")
+            with self._lock:
+                inner = self._sync_inner_locked()
+            if inner is None:
+                time.sleep(min(0.2, max(0.0, deadline - time.monotonic())))
+                continue
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                result = inner.read_once(
+                    timeout_seconds=min(remaining, self._rediscovery_seconds),
+                    cancel_event=cancel_event,
+                )
+                self._last_read_at = result.read_at
+                return result
+            except ChipReaderTimeout:
+                continue
+            except ChipReaderError:
+                with self._lock:
+                    if self._inner is not None:
+                        self._inner.stop()
+                        self._inner = None
+                continue
+        raise ChipReaderTimeout("Čas pro načtení čipu vypršel.")
+
+    def status(self) -> ReaderStatus:
+        with self._lock:
+            if not self._running:
+                return ReaderStatus(
+                    ReaderState.STOPPED,
+                    "ELATEC auto čtečka je zastavená.",
+                    self._last_read_at,
+                )
+            inner = self._sync_inner_locked()
+            if inner is None:
+                return ReaderStatus(
+                    ReaderState.DISCONNECTED,
+                    self._last_status_message,
+                    self._last_read_at,
+                )
+            status = inner.status()
+            return ReaderStatus(status.state, status.message, self._last_read_at)
+
+    def device_info(self) -> ReaderDeviceInfo:
+        with self._lock:
+            inner = self._sync_inner_locked()
+            if inner is None:
+                return ReaderDeviceInfo(adapter="auto-elatec")
+            info = inner.device_info()
+            return ReaderDeviceInfo(
+                adapter="auto-elatec",
+                port=info.port,
+                manufacturer=info.manufacturer,
+                product=info.product,
+                serial_number=info.serial_number,
+            )
+
+    def discovery_snapshot(self):
+        kwargs = {}
+        if self._port_lister is not None:
+            kwargs["port_lister"] = self._port_lister
+        return self._select(
+            preferred_serial=self._preferred_serial,
+            **kwargs,
+        )
+
+    def _sync_inner_locked(self) -> SerialLineChipReader | None:
+        from .reader_discovery import ReaderDiscoveryStatus
+
+        kwargs = {}
+        if self._port_lister is not None:
+            kwargs["port_lister"] = self._port_lister
+        result = self._select(
+            preferred_serial=self._preferred_serial,
+            **kwargs,
+        )
+        self._last_status_message = result.message
+        if result.status is not ReaderDiscoveryStatus.FOUND or result.selected is None:
+            if self._inner is not None:
+                self._inner.stop()
+                self._inner = None
+            return None
+        port = result.selected.device
+        if self._inner is None or self._inner.port.casefold() != port.casefold():
+            if self._inner is not None:
+                self._inner.stop()
+            self._inner = SerialLineChipReader(
+                port,
+                baud_rate=self._baud_rate,
+                line_end=self._line_end,
+                duplicate_debounce_seconds=self._debounce,
+                reconnect_attempts=self._reconnect_attempts,
+            )
+            if self._running:
+                try:
+                    self._inner.start()
+                except ChipReaderError as exc:
+                    self._last_status_message = str(exc)
+                    self._inner = None
+                    return None
+        return self._inner
+
+
 def build_chip_reader(
-    port: str | None,
+    port: str | None = None,
     *,
+    mode: str = "manual",
+    preferred_serial: str | None = None,
     baud_rate: int = 19_200,
     line_end: str = "\r",
 ) -> ChipReader:
-    """Vytvoří čtečku podle instalační konfigurace.
+    """Vytvoří čtečku podle režimu (auto ELATEC / manuální COM)."""
 
-    Bez nakonfigurovaného portu vrací `UnavailableChipReader`; port se nikdy
-    nehádá z enumerace, protože model čtečky není autoritativně doložený.
-    """
+    normalized_mode = (mode or "manual").strip().casefold()
+    try:
+        encoded_end = line_end.encode("ascii")
+    except UnicodeEncodeError as exc:
+        return UnavailableChipReader(f"Nastavení čtečky není platné: {exc}")
+
+    if normalized_mode in {"auto_elatec", "auto"}:
+        try:
+            return AutoElatecChipReader(
+                preferred_serial=preferred_serial,
+                baud_rate=baud_rate,
+                line_end=encoded_end,
+            )
+        except (ValueError, TypeError) as exc:
+            return UnavailableChipReader(f"Nastavení čtečky není platné: {exc}")
+
+    if normalized_mode != "manual":
+        return UnavailableChipReader(
+            f"Neplatný režim čtečky: {mode!r}."
+        )
 
     if not port or not port.strip():
         return UnavailableChipReader(
-            "Čtečka není nakonfigurována. Vyberte COM port v administraci."
+            "Čtečka není nakonfigurována. Vyberte COM port v administraci "
+            "nebo zapněte Automaticky – ELATEC."
         )
     try:
         return SerialLineChipReader(
             port.strip(),
             baud_rate=baud_rate,
-            line_end=line_end.encode("ascii"),
+            line_end=encoded_end,
         )
     except (ValueError, UnicodeEncodeError) as exc:
         return UnavailableChipReader(f"Nastavení čtečky není platné: {exc}")
