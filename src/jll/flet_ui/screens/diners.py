@@ -298,8 +298,12 @@ class DinersScreen:
         assert day is not None
         diner = day.diner
         edit = self.state.diner_edit_state()
-        chip_state = self.state.chip_assign_state()
+        chip_view = self.state.chip_view_state()
         create = self.state.diner_create_state()
+        assign = self.state.chip_assign_state()
+        block = self.state.chip_block_state()
+        lost = self.state.chip_lost_state()
+        unblock = self.state.chip_unblock_state()
 
         title = ft.Text(
             diner.name,
@@ -308,16 +312,41 @@ class DinersScreen:
             overflow=ft.TextOverflow.ELLIPSIS,
             max_lines=1,
         )
+        info_size = theme.role_size(theme.TextRole.BODY)
         meta = ft.Text(
             f"{diner.class_name or diner.category} · ev. {diner.evidcislo}",
-            size=theme.role_size(theme.TextRole.META),
+            size=info_size,
             color=theme.COLORS["text_secondary"],
+            weight=ft.FontWeight.W_500,
         )
+        credit_text = self.vm.format_credit(diner.available_credit)
         finance = ft.Text(
-            f"Kredit {self.vm.format_credit(diner.available_credit)}"
-            f"   Čip {diner.chip_number or '—'}",
-            size=theme.role_size(theme.TextRole.META),
-            color=theme.COLORS["text_secondary"],
+            spans=[
+                ft.TextSpan(
+                    "Kredit ",
+                    ft.TextStyle(
+                        size=info_size,
+                        color=theme.COLORS["text_secondary"],
+                        weight=ft.FontWeight.W_500,
+                    ),
+                ),
+                ft.TextSpan(
+                    credit_text,
+                    ft.TextStyle(
+                        size=info_size,
+                        color=theme.COLORS["text_primary"],
+                        weight=ft.FontWeight.W_700,
+                    ),
+                ),
+                ft.TextSpan(
+                    f"   Čip {diner.chip_number or '—'}",
+                    ft.TextStyle(
+                        size=info_size,
+                        color=theme.COLORS["text_secondary"],
+                        weight=ft.FontWeight.W_500,
+                    ),
+                ),
+            ],
             overflow=ft.TextOverflow.ELLIPSIS,
             max_lines=1,
         )
@@ -328,22 +357,13 @@ class DinersScreen:
                     disabled=not edit.allowed,
                     tooltip=disabled_hint(edit) or None,
                     style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=12, vertical=4)),
-                    on_click=lambda _e: message_dialog(
-                        self.page,
-                        title="Úprava strávníka",
-                        body=disabled_hint(edit) or "Nedostupné.",
-                    ),
+                    on_click=lambda _e: self._open_edit_dialog(),
                 ),
                 ft.TextButton(
                     "Detail čipu",
-                    tooltip=disabled_hint(chip_state) or "Náhled čipu",
-                    on_click=lambda _e: message_dialog(
-                        self.page,
-                        title="Čip",
-                        body=disabled_hint(chip_state)
-                        if not chip_state.allowed
-                        else (diner.chip_number or "Bez čipu"),
-                    ),
+                    disabled=not chip_view.allowed,
+                    tooltip=disabled_hint(chip_view) or "Náhled čipu",
+                    on_click=lambda _e: self._open_chip_detail(),
                 ),
                 ft.FilledButton(
                     "Ruční odběr",
@@ -355,16 +375,43 @@ class DinersScreen:
                     disabled=not create.allowed,
                     tooltip=disabled_hint(create) or None,
                     style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=12, vertical=4)),
-                    on_click=lambda _e: message_dialog(
-                        self.page,
-                        title="Nový strávník",
-                        body=disabled_hint(create) or "Zápis zatím není povolen.",
-                    ),
+                    on_click=lambda _e: self._open_create_dialog(),
                 ),
             ],
             spacing=theme.SPACING["xs"],
             tight=True,
             wrap=False,
+        )
+        chip_actions = ft.Row(
+            [
+                ft.TextButton(
+                    "Přidělit",
+                    disabled=not assign.allowed,
+                    tooltip=disabled_hint(assign) or None,
+                    on_click=lambda _e: self._chip_assign(),
+                ),
+                ft.TextButton(
+                    "Blokovat",
+                    disabled=not block.allowed,
+                    tooltip=disabled_hint(block) or None,
+                    on_click=lambda _e: self._chip_block(),
+                ),
+                ft.TextButton(
+                    "Odblokovat",
+                    disabled=not unblock.allowed,
+                    tooltip=disabled_hint(unblock) or None,
+                    on_click=lambda _e: self._chip_unblock(),
+                ),
+                ft.TextButton(
+                    "Ztracený",
+                    disabled=not lost.allowed,
+                    tooltip=disabled_hint(lost) or None,
+                    on_click=lambda _e: self._chip_lost(),
+                ),
+            ],
+            spacing=theme.SPACING["xs"],
+            tight=True,
+            wrap=True,
         )
         header = ft.Column(
             [
@@ -376,8 +423,9 @@ class DinersScreen:
                     vertical_alignment=ft.CrossAxisAlignment.START,
                     spacing=theme.SPACING["sm"],
                 ),
+                chip_actions,
             ],
-            spacing=0,
+            spacing=theme.SPACING["xs"],
             tight=True,
         )
         month_row = ft.Row(
@@ -406,9 +454,9 @@ class DinersScreen:
             day.target_date.year == future.year and day.target_date.month == future.month
         )
 
-        def _btn(option, *, selected: bool, future_month: bool) -> ft.Control:
-            bg = theme.COLORS["accent"] if selected else "#6F8FA8"
-            border = ft.border.all(2, "#FFFFFF") if selected else None
+        def _btn(option, *, viewing: bool, future_month: bool) -> ft.Control:
+            # Zvýrazni měsíc, na který lze přepnout; aktuálně zobrazený je tlumený.
+            bg = "#6F8FA8" if viewing else theme.COLORS["accent"]
             return ft.Container(
                 content=ft.Text(
                     option.label,
@@ -419,16 +467,20 @@ class DinersScreen:
                 bgcolor=bg,
                 padding=ft.padding.symmetric(horizontal=14, vertical=6),
                 border_radius=20,
-                border=border,
-                ink=True,
-                on_click=lambda _e, fut=future_month: self._switch_month(fut),
-                tooltip="Aktivní měsíc" if selected else "Přepnout měsíc",
+                ink=not viewing,
+                on_click=(
+                    None
+                    if viewing
+                    else (lambda _e, fut=future_month: self._switch_month(fut))
+                ),
+                tooltip="Zobrazený měsíc" if viewing else "Přepnout měsíc",
+                opacity=0.72 if viewing else 1.0,
             )
 
         return ft.Row(
             [
-                _btn(current, selected=not active_is_future, future_month=False),
-                _btn(future, selected=active_is_future, future_month=True),
+                _btn(current, viewing=not active_is_future, future_month=False),
+                _btn(future, viewing=active_is_future, future_month=True),
             ],
             spacing=theme.SPACING["sm"],
             tight=True,
@@ -824,3 +876,300 @@ class DinersScreen:
         self.page.overlay.append(dialog)
         dialog.open = True
         self.page.update()
+
+    def _actor_bits(self) -> tuple[str, str]:
+        assert self.state.business is not None
+        actor = self.state.business.current_actor()
+        return actor.audit_actor, actor.client_version
+
+    def _open_create_dialog(self) -> None:
+        create = self.state.diner_create_state()
+        if not create.allowed:
+            message_dialog(
+                self.page,
+                title="Nový strávník",
+                body=disabled_hint(create) or "Nedostupné.",
+            )
+            return
+        cats = sorted(self.state.business.current_policy().scope()) if self.state.business else []
+        name_field = ft.TextField(label="Příjmení a jméno", autofocus=True)
+        class_field = ft.TextField(label="Třída")
+        cat_field = ft.Dropdown(
+            label="Kategorie",
+            options=[ft.dropdown.Option(c) for c in cats],
+            value=cats[0] if cats else None,
+        )
+
+        def _save(_e=None) -> None:
+            service = self.state.diner_service
+            if service is None:
+                message_dialog(self.page, title="Nový strávník", body="Služba není dostupná.")
+                return
+            from ...diner_models import CreateDinerCommand
+
+            actor, version = self._actor_bits()
+            try:
+                result = service.create(
+                    CreateDinerCommand(
+                        jmeno=name_field.value or "",
+                        kategorie=cat_field.value or "",
+                        trida=class_field.value or "",
+                        actor=actor,
+                        client_version=version,
+                    )
+                )
+            except Exception as exc:
+                message_dialog(self.page, title="Nový strávník", body=str(exc))
+                return
+            dialog.open = False
+            self.page.update()
+            self._open(result.evidcislo)
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Nový strávník", weight=ft.FontWeight.W_700),
+            content=ft.Column(
+                [name_field, cat_field, class_field],
+                tight=True,
+                spacing=8,
+                width=360,
+            ),
+            actions=[
+                ft.TextButton(
+                    "Zrušit",
+                    on_click=lambda _e: setattr(dialog, "open", False) or self.page.update(),
+                ),
+                ft.FilledButton("Uložit", on_click=_save),
+            ],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+
+    def _open_edit_dialog(self) -> None:
+        if self._day is None:
+            return
+        edit = self.state.diner_edit_state()
+        if not edit.allowed:
+            message_dialog(
+                self.page,
+                title="Úprava strávníka",
+                body=disabled_hint(edit) or "Nedostupné.",
+            )
+            return
+        diner = self._day.diner
+        name_field = ft.TextField(label="Jméno", value=diner.name, autofocus=True)
+        class_field = ft.TextField(label="Třída", value=diner.class_name or "")
+        note_field = ft.TextField(label="Poznámka", value=diner.poznamka or "")
+        email_field = ft.TextField(label="E-mail", value=diner.email or "")
+        street_field = ft.TextField(label="Ulice", value=diner.ulice or "")
+        city_field = ft.TextField(label="Město", value=diner.mesto or "")
+
+        def _save(_e=None) -> None:
+            service = self.state.diner_service
+            if service is None:
+                message_dialog(self.page, title="Úprava", body="Služba není dostupná.")
+                return
+            from ...diner_models import EditDinerPersonalCommand
+
+            actor, version = self._actor_bits()
+            try:
+                service.edit_personal(
+                    EditDinerPersonalCommand(
+                        evidcislo=diner.evidcislo,
+                        expected_updated_dt=diner.updated_dt,
+                        fields={
+                            "jmeno": name_field.value or "",
+                            "trida": class_field.value or "",
+                            "poznamka": note_field.value or "",
+                            "email": email_field.value or "",
+                            "ulice": street_field.value or "",
+                            "mesto": city_field.value or "",
+                        },
+                        actor=actor,
+                        client_version=version,
+                    )
+                )
+            except Exception as exc:
+                message_dialog(self.page, title="Úprava", body=str(exc))
+                return
+            dialog.open = False
+            self.page.update()
+            self._open(diner.evidcislo)
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Upravit strávníka", weight=ft.FontWeight.W_700),
+            content=ft.Column(
+                [
+                    name_field,
+                    class_field,
+                    street_field,
+                    city_field,
+                    email_field,
+                    note_field,
+                    ft.Text(
+                        "Kategorie a finance se zde nemění.",
+                        size=theme.role_size(theme.TextRole.META),
+                        color=theme.COLORS["text_secondary"],
+                    ),
+                ],
+                tight=True,
+                spacing=8,
+                width=360,
+                scroll=ft.ScrollMode.AUTO,
+                height=360,
+            ),
+            actions=[
+                ft.TextButton(
+                    "Zrušit",
+                    on_click=lambda _e: setattr(dialog, "open", False) or self.page.update(),
+                ),
+                ft.FilledButton("Uložit", on_click=_save),
+            ],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+
+    def _open_chip_detail(self) -> None:
+        if self._day is None:
+            return
+        chip_view = self.state.chip_view_state()
+        if not chip_view.allowed:
+            message_dialog(
+                self.page,
+                title="Detail čipu",
+                body=disabled_hint(chip_view) or "Nedostupné.",
+            )
+            return
+        diner = self._day.diner
+        lines: list[str] = []
+        if diner.chips:
+            for chip in diner.chips:
+                lines.append(f"{chip.code} · {chip.status_label}")
+        elif diner.chip_number:
+            lines.append(f"{diner.chip_number} · aktuální na kartě")
+        else:
+            lines.append("Strávník nemá evidovaný čip.")
+        history_lines: list[str] = []
+        service = self.state.chip_command_service
+        if service is not None:
+            try:
+                history = service.load_history(diner.evidcislo)
+                for item in history[:12]:
+                    when = (
+                        item.issued_at.strftime("%d.%m.%Y")
+                        if item.issued_at is not None
+                        else "—"
+                    )
+                    history_lines.append(
+                        f"{when} · {item.code} · {item.status_label}"
+                    )
+            except Exception:
+                history_lines = []
+        body = "\n".join(lines)
+        if history_lines:
+            body = body + "\n\nHistorie:\n" + "\n".join(history_lines)
+        message_dialog(self.page, title="Detail čipu", body=body)
+
+    def _chip_code_for_action(self) -> str | None:
+        if self._day is None:
+            return None
+        diner = self._day.diner
+        if diner.chip_number:
+            return diner.chip_number
+        for chip in diner.chips:
+            if chip.status_code == "P":
+                return chip.code
+        if diner.chips:
+            return diner.chips[0].code
+        return None
+
+    def _chip_assign(self) -> None:
+        if self._day is None:
+            return
+        state = self.state.chip_assign_state()
+        if not state.allowed:
+            message_dialog(self.page, title="Přidělit čip", body=disabled_hint(state) or "")
+            return
+        code_field = ft.TextField(label="Číslo čipu", autofocus=True)
+
+        def _save(_e=None) -> None:
+            service = self.state.chip_command_service
+            if service is None:
+                return
+            from ...diner_models import ChipCommand
+
+            actor, version = self._actor_bits()
+            try:
+                service.assign(
+                    ChipCommand(
+                        chip_code=code_field.value or "",
+                        evidcislo=self._day.diner.evidcislo,
+                        actor=actor,
+                        client_version=version,
+                    )
+                )
+            except Exception as exc:
+                message_dialog(self.page, title="Přidělit čip", body=str(exc))
+                return
+            dialog.open = False
+            self.page.update()
+            self._open(self._day.diner.evidcislo)
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Přidělit čip"),
+            content=code_field,
+            actions=[
+                ft.TextButton(
+                    "Zrušit",
+                    on_click=lambda _e: setattr(dialog, "open", False) or self.page.update(),
+                ),
+                ft.FilledButton("Přidělit", on_click=_save),
+            ],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+
+    def _chip_op(self, title: str, state_fn, handler_name: str) -> None:
+        if self._day is None:
+            return
+        state = state_fn()
+        if not state.allowed:
+            message_dialog(self.page, title=title, body=disabled_hint(state) or "")
+            return
+        code = self._chip_code_for_action()
+        if not code:
+            message_dialog(self.page, title=title, body="Strávník nemá čip.")
+            return
+        service = self.state.chip_command_service
+        if service is None:
+            return
+        from ...diner_models import ChipCommand
+
+        actor, version = self._actor_bits()
+        try:
+            getattr(service, handler_name)(
+                ChipCommand(
+                    chip_code=code,
+                    evidcislo=self._day.diner.evidcislo,
+                    actor=actor,
+                    client_version=version,
+                )
+            )
+        except Exception as exc:
+            message_dialog(self.page, title=title, body=str(exc))
+            return
+        self._open(self._day.diner.evidcislo)
+
+    def _chip_block(self) -> None:
+        self._chip_op("Blokovat čip", self.state.chip_block_state, "block")
+
+    def _chip_unblock(self) -> None:
+        self._chip_op("Odblokovat čip", self.state.chip_unblock_state, "unblock")
+
+    def _chip_lost(self) -> None:
+        self._chip_op("Ztracený čip", self.state.chip_lost_state, "lost")

@@ -18,6 +18,8 @@ from ..identity_store import IdentityStore
 from ..orders.service import OrderService
 from ..policy import Permission
 from ..read_service import OrderReadService
+from ..chip_command_service import ChipCommandService
+from ..diner_service import DinerService
 from ..serving_service import ServingService
 from ..sup_secret import SupSecretStore
 from ..version import application_version
@@ -127,6 +129,16 @@ class FletAppController:
             line_end=config.reader_line_end,
         )
         self.state.serving_service = ServingService(
+            pool.connection,
+            business.current_policy,
+            config.order_settings,
+        )
+        self.state.diner_service = DinerService(
+            pool.connection,
+            business.current_policy,
+            config.order_settings,
+        )
+        self.state.chip_command_service = ChipCommandService(
             pool.connection,
             business.current_policy,
             config.order_settings,

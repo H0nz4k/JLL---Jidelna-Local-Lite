@@ -78,6 +78,8 @@ class AppState:
     application_service: Any = None
     chip_reader: Any = None
     serving_service: Any = None
+    diner_service: Any = None
+    chip_command_service: Any = None
     route: Route = Route.DINERS
     text_scale: TextScale = TextScale.NORMAL
     search_query: str = ""
@@ -116,6 +118,29 @@ class AppState:
         return action_state(
             has_permission=self.has_perm(Permission.CHIPS_ASSIGN),
             gate=CHIP_WRITE_GATES["assign"],
+        )
+
+    def chip_view_state(self) -> ActionAvailability:
+        return action_state(
+            has_permission=self.has_perm(Permission.CHIPS_VIEW),
+        )
+
+    def chip_block_state(self) -> ActionAvailability:
+        return action_state(
+            has_permission=self.has_perm(Permission.CHIPS_BLOCK),
+            gate=CHIP_WRITE_GATES["block"],
+        )
+
+    def chip_lost_state(self) -> ActionAvailability:
+        return action_state(
+            has_permission=self.has_perm(Permission.CHIPS_LOST),
+            gate=CHIP_WRITE_GATES["lost"],
+        )
+
+    def chip_unblock_state(self) -> ActionAvailability:
+        return action_state(
+            has_permission=self.has_perm(Permission.CHIPS_BLOCK),
+            gate=CHIP_WRITE_GATES["unblock"],
         )
 
 
