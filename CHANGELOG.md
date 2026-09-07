@@ -6,6 +6,28 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.3.0] – 2026-09-07
+
+Dokončení správy strávníků a čipů (bez redesignu UI):
+
+- create strávníka přes `pridel_cislo_stravnika` + obvyklé služby;
+- personal edit s whitelistem a `updated_dt` concurrency;
+- Detail čipu read-only přes `chips.view` (ne přes assign gate);
+- chip assign / block / lost / unblock PROVEN; return/transfer BLOCKED;
+- category change zůstává PARTIAL.
+
+### Added
+
+- `DinerService`, `ChipCommandService`, Flet dialogy Nový/Upravit/Detail čipu.
+- `docs/JLL_DINER_WRITE_CONTRACT_0.3.0.md`, `docs/JLL_CHIP_WRITE_CONTRACT_0.3.0.md`.
+- Integrační testy create/edit/chip lifecycle.
+
+### Changed
+
+- Canonical verze `0.3.0`.
+- Write gates: diner create/edit a chip assign/block/lost/unblock → PROVEN.
+- Stav čipu `V` = Volný.
+
 ## [0.2.1] – 2026-09-07
 
 Flet UX patch + JídelnaSQL logic parity/safety:

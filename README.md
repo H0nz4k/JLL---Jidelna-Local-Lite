@@ -37,11 +37,12 @@ deadline, exkluzivitu variant a audit.
 
 ## Aktuální stav
 
-Verze `0.2.1` (Flet desktop UX). Aplikace se spouští pouze proti lokální
+Verze `0.3.0` (Flet desktop UX). Aplikace se spouští pouze proti lokální
 testovací databázi, jejíž identitu ověřuje LAB guard. Cílové UI je Flet;
-PySide6 zůstává referenční. Backend, identity, oprávnění a objednávkový
-write jsou implementované a otestované; část write kontraktů je záměrně
-uzavřená (write gates).
+PySide6 zůstává referenční. Backend, identity, oprávnění, objednávkový
+write, create/edit strávníka a část chip lifecycle jsou implementované;
+neprokázané write kontrakty zůstávají fail-closed (return/transfer čipu,
+změna kategorie).
 
 ## Hlavní funkce
 
@@ -52,10 +53,10 @@ uzavřená (write gates).
   AND.
 - Karta strávníka s read-only identitou, kategorií, třídou, evidenčním
   číslem a kreditem.
+- **Nový strávník** a **Upravit** (personal whitelist) přes ověřené write
+  gates; změna kategorie zůstává fail-closed (PARTIAL).
 - Detailní karta strávníka (Údaje, Finance, Čipy) jen z doložených sloupců;
-  PIN, rodné číslo ani kontaktní údaje se nečtou.
-- Náhledy editace a nového strávníka mají zakázané `Uložit`, protože jejich
-  write kontrakty nejsou doložené.
+  PIN a rodné číslo se nečtou.
 
 ### Přihlášky a odhlášky
 
@@ -71,12 +72,13 @@ uzavřená (write gates).
 
 ### Čipy
 
-- Read-only přehled čipových řádků včetně doloženého popisu stavu.
+- Read-only Detail čipu přes `chips.view` (nezávisle na assign gate).
+- Write: přidělit / blokovat / odblokovat / ztracený (PROVEN); vrátit a
+  převést zůstávají BLOCKED (finance / chybějící legacy transfer).
 - `ChipReader` abstrakce s fake i sériovým adapterem a explicitním portem.
 - Ve Flet UI čtečka poslouchá na pozadí: přiložení čipu otevře kartu
-  vlastníka (bez tlačítka Identifikovat). Pokud je port v nastavení, ale
-  zařízení není připojené, search pole ukáže světle červené
-  `čtečka nepřipojena`.
+  vlastníka. Pokud je port v nastavení, ale zařízení není připojené,
+  search pole ukáže světle červené `čtečka nepřipojena`.
 - Administrace → Čtečka: COM port z OS enumerace, baudrate, ukončení řádku
   a test čtečky. Uložení vyžaduje `admin.reader` i SUP reauth.
 - Čipové zápisy jsou fail-closed.
