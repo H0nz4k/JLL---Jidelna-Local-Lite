@@ -31,6 +31,7 @@ class MonthCell:
     is_selected: bool
     is_ordered: bool
     is_subscribed: bool
+    is_picked_up: bool = False
 
     @property
     def is_menu_number(self) -> bool:
@@ -198,6 +199,7 @@ class DinersViewModel:
                         and len(state) == 1
                         and state.isdigit(),
                         is_subscribed=state in {"S", "N"},
+                        is_picked_up=meal.picked_up_on(day),
                     )
                 )
             rows.append(

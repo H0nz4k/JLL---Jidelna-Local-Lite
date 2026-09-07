@@ -59,6 +59,10 @@ COLORS: dict[str, str] = {
     "ordered_selected": "#b9e3c6",
     "ordered_accent": "#1c6b41",
     "ordered_text": "#0f1b13",
+    "picked_background": "#ffe566",
+    "picked_selected": "#f0c000",
+    "picked_accent": "#7a5a00",
+    "picked_text": "#3d2e00",
     "non_cooking": "#e7ebef",
     "weekend": "#eef1f4",
     "disabled": "#9aa7b3",
@@ -84,7 +88,7 @@ CONTROL_HEIGHT = 30
 ROW_HEIGHT = 32
 MENU_BADGE_WIDTH = 30
 
-_scale = TextScale.NORMAL
+_scale = TextScale.EXTRA_LARGE
 
 
 def set_text_scale(scale: TextScale) -> None:

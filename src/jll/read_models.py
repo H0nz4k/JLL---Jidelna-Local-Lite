@@ -151,6 +151,7 @@ class MealDay:
     exclusive_codes: frozenset[str]
     allowed_menus: tuple[int, ...] = ()
     month_states: tuple[str | None, ...] = ()
+    month_pickups: tuple[bool, ...] = ()
     cooking_days: frozenset[int] = frozenset()
 
     @property
@@ -163,6 +164,11 @@ class MealDay:
         if value is not None and len(value) == 1 and "1" <= value <= "9":
             return int(value)
         return None
+
+    def picked_up_on(self, day: int) -> bool:
+        if day < 1 or day > len(self.month_pickups):
+            return False
+        return bool(self.month_pickups[day - 1])
 
     def can(self, action: OrderAction) -> bool:
         return next(

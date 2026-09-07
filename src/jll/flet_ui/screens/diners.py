@@ -717,9 +717,9 @@ class DinersScreen:
         rows = self.vm.month_rows(day)
         if not rows:
             return ft.Text("Žádná data přihlášek.", size=theme.role_size(theme.TextRole.META))
-        label_w = int(theme.scaled(64))
-        cell_h = theme.scaled(22)
-        today_h = theme.scaled(26)
+        label_w = int(theme.scaled(76))
+        cell_h = theme.scaled(28)
+        today_h = theme.scaled(32)
         meta_size = theme.role_size(theme.TextRole.META)
         actual_today = day.server_now.date()
         selected_day = day.target_date.day
@@ -786,7 +786,14 @@ class DinersScreen:
                         if is_today_col
                         else theme.COLORS["accent_soft"]
                     )
-                if cell.is_ordered:
+                if cell.is_ordered and cell.is_picked_up:
+                    bg = (
+                        theme.COLORS["picked_selected"]
+                        if cell.is_selected
+                        else theme.COLORS["picked"]
+                    )
+                    weight = ft.FontWeight.W_700
+                elif cell.is_ordered:
                     bg = (
                         theme.COLORS["ordered_selected"]
                         if cell.is_selected
@@ -874,6 +881,9 @@ class DinersScreen:
         ordered = getattr(meal, "ordered_menu", None)
         if ordered is None and meal.current_state and meal.current_state.isdigit():
             ordered = int(meal.current_state)
+        picked = False
+        if self._day is not None:
+            picked = meal.picked_up_on(self._day.target_date.day)
 
         # Stravný den (S/N/objednáno) bez zveřejněného jídelníčku → světle červená hláška.
         is_meal_day = meal.current_state in {"S", "N"} or (
@@ -901,16 +911,24 @@ class DinersScreen:
             unpublished = not getattr(option, "published", True)
             dish = option.dish_name or ("Jídelníček není zveřejněn" if unpublished else "Menu")
             label = f"{option.menu} · cena {price} · {dish}"
+            if is_ordered and picked:
+                label = f"{label} · odebráno"
             text_color = (
                 unpublished_color
                 if unpublished and is_meal_day
                 else theme.COLORS["text_primary"]
             )
+            if is_ordered and picked:
+                row_bg = theme.COLORS["picked"]
+            elif is_ordered:
+                row_bg = theme.COLORS["ordered"]
+            else:
+                row_bg = theme.COLORS["surface"]
             option_controls.append(
                 ft.Container(
                     content=ft.Text(
                         label,
-                        size=theme.role_size(theme.TextRole.META),
+                        size=theme.role_size(theme.TextRole.BODY),
                         max_lines=1,
                         overflow=ft.TextOverflow.ELLIPSIS,
                         color=text_color,
@@ -920,13 +938,9 @@ class DinersScreen:
                             else ft.FontWeight.W_400
                         ),
                     ),
-                    bgcolor=(
-                        theme.COLORS["ordered"]
-                        if is_ordered
-                        else theme.COLORS["surface"]
-                    ),
+                    bgcolor=row_bg,
                     border=ft.border.all(1, theme.COLORS["block_border"]),
-                    padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                    padding=ft.padding.symmetric(horizontal=8, vertical=6),
                     border_radius=4,
                     expand=True,
                     on_click=(
@@ -940,7 +954,7 @@ class DinersScreen:
             )
 
         unsub = ft.Container(width=0)
-        if ordered is not None and self.vm.can_change_orders():
+        if ordered is not None and self.vm.can_change_orders() and not picked:
             unsub = ft.TextButton(
                 "Odhlásit",
                 style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=8, vertical=0)),
@@ -1056,6 +1070,7 @@ class DinersScreen:
                 dialog.open = False
                 self.page.update()
                 if ok:
+                    self._open(evidcislo)
                     message_dialog(
                         self.page,
                         title="Odběr",

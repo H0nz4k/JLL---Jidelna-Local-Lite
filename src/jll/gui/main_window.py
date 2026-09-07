@@ -1442,6 +1442,7 @@ class MainWindow(QMainWindow):
                     and len(value) == 1
                     and "1" <= value <= "9"
                 )
+                picked = ordered and meal.picked_up_on(day_number)
                 cell_date = date(
                     day.target_date.year,
                     day.target_date.month,
@@ -1461,6 +1462,8 @@ class MainWindow(QMainWindow):
                 lines = [meal.meal_type, f"{cell_date:%d.%m.%Y}"]
                 if ordered:
                     lines.append(f"Menu {value}")
+                    if picked:
+                        lines.append("Odebráno")
                 elif not cooking:
                     lines.append("Nevaří se")
                 else:
@@ -1468,7 +1471,17 @@ class MainWindow(QMainWindow):
                 if self.diagnostic_group.isChecked():
                     lines.append(f"LAB diagnostika: stav {value or 'NULL'}")
                 item.setToolTip("\n".join(lines))
-                if ordered:
+                if picked:
+                    item.setBackground(
+                        QColor(
+                            theme.COLORS["picked_selected"]
+                            if selected
+                            else theme.COLORS["picked_background"]
+                        )
+                    )
+                    item.setForeground(QColor(theme.COLORS["picked_accent"]))
+                    item.setFont(theme.font(TextRole.ACTION))
+                elif ordered:
                     item.setBackground(
                         QColor(
                             theme.COLORS["ordered_selected"]

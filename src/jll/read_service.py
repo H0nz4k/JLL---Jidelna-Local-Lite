@@ -1357,6 +1357,42 @@ class OrderReadService:
             for key, value in month_states.items()
             if key in {item.typstravy for item in meal_types}
         }
+        pickup_rows = repository.fetchall(
+            """
+            SELECT btrim(p.typsluzby) AS typstravy,
+                   o.odebral AS odebral
+            FROM public.prihlas AS p
+            LEFT JOIN public.odebral AS o
+              ON o.stravnik = p.stravnik
+             AND o.rok = p.rok
+             AND o.mesic = p.mesic
+             AND lower(btrim(o.typstravy)) = lower(btrim(p.typsluzby))
+             AND o.poradiprihl = p.poradiprihl
+            WHERE p.stravnik = %s
+              AND p.rok = %s
+              AND p.mesic = %s
+              AND p.typsluzby = ANY(%s::varchar[])
+            """,
+            (
+                diner.evidcislo,
+                target.year,
+                target.month,
+                [item.typstravy for item in meal_types],
+            ),
+        )
+        month_pickups: dict[str, tuple[bool, ...]] = {}
+        for row in pickup_rows:
+            key = str(row["typstravy"])
+            if key in month_pickups:
+                raise OrderBusinessError(
+                    ErrorCode.AMBIGUOUS_ORDER_ROW,
+                    "Měsíční řádek odběru není jednoznačný.",
+                )
+            markers = str(row["odebral"] or "")
+            month_pickups[key] = tuple(
+                day <= len(markers) and markers[day - 1] == "O"
+                for day in range(1, 32)
+            )
 
         menu_rows = repository.fetchall(
             """
@@ -1518,6 +1554,7 @@ class OrderReadService:
                     ),
                     allowed_menus=allowed_menus.get(meal_type.typstravy, ()),
                     month_states=states,
+                    month_pickups=month_pickups.get(meal_type.typstravy, ()),
                     cooking_days=frozenset(
                         day
                         for day, is_cooking in calendars.get(
