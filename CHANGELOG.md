@@ -6,6 +6,26 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.3.1] – 2026-09-07
+
+Chip deposit safety hardening:
+
+- `CenaZaPrvniCip` z `public.parametry` (BACKUP);
+- assign/return fail-closed při záloze > 0 před chip write;
+- return PROVEN pro deposit=0;
+- audit diner/chip používá DB `CURRENT_DATE`;
+- skutečný create rollback po insertech + závislé řádky.
+
+### Added
+
+- `ChipFinancialConfig` / `docs/JLL_CHIP_FINANCIAL_CONFIG_0.3.1.md`.
+- Integrační testy deposit/return/server-time/rollback.
+
+### Changed
+
+- Canonical verze `0.3.1`.
+- `CHIP_WRITE_GATES["return"]` → PROVEN (runtime deposit gate).
+
 ## [0.3.0] – 2026-09-07
 
 Dokončení správy strávníků a čipů (bez redesignu UI):

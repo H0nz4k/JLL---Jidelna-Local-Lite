@@ -1,4 +1,4 @@
-# JLL chip write contract 0.3.0
+# JLL chip write contract 0.3.0 (+ 0.3.1 deposit safety)
 
 ## Stavový stroj (PROVEN z Pomoc.pas / Data.pas)
 
@@ -17,23 +17,26 @@
 
 ## Write matice
 
-| Operace | Before | After | Evidence / poznámka |
+| Operace | Gate | Runtime | Evidence |
 | --- | --- | --- | --- |
-| assign | PARTIAL | **PROVEN** | `NajdiCip(P)` + hist + `stravnik.cip`; finance `VyberzaCip` jen při INI `CenaZaPrvniCip≠0` → mimo 0.3.0 |
-| return | BLOCKED | **BLOCKED** | DB `NajdiCip(V)` doložen, ale legacy volá `VratzaCip` (platba) → 0.4.0 |
-| block | BLOCKED | **PROVEN** | BitBtn13 / `NajdiCip(B)`: `P→B` + hist, owner zůstává |
-| lost | BLOCKED | **PROVEN** | BitBtn14: `→Z` + hist + clear `stravnik.cip` |
-| unblock | BLOCKED | **PROVEN** | `NajdiCip(B)` když už `B` → `P` + hist |
-| transfer | BLOCKED | **BLOCKED** | žádná samostatná legacy akce; tichý transfer zakázán |
+| assign | **PROVEN** | `CenaZaPrvniCip=0` OK; `>0` fail-closed před write | `NajdiCip(P)` + hist + `stravnik.cip` |
+| return | **PROVEN** | jen `deposit=0`; `>0` fail-closed | `NajdiCip(V)` nefinanční větev |
+| block | **PROVEN** | — | BitBtn13 / `NajdiCip(B)` |
+| lost | **PROVEN** | — | BitBtn14 |
+| unblock | **PROVEN** | — | `B→P` + hist |
+| transfer | **BLOCKED** | — | žádná samostatná legacy akce |
+
+Autoritativní záloha: `public.parametry` sekce `BACKUP` / `CenaZaPrvniCip`
+(viz `docs/JLL_CHIP_FINANCIAL_CONFIG_0.3.1.md`). **Ne INI.**
 
 ## Architektura
 
 ```text
 Chip read/detail/history → Permission.CHIPS_VIEW
-ChipCommandService       → permission + CHIP_WRITE_GATES + LAB/scope/audit
+ChipCommandService       → permission + CHIP_WRITE_GATES + deposit gate + LAB/scope/audit
 ```
 
 ## Tests
 
-Real DB: assign / duplicate / block / unblock / lost + history permission
-v `tests/integration/test_diner_chip_0_3_0_postgres.py`.
+- `tests/integration/test_diner_chip_0_3_0_postgres.py`
+- `tests/integration/test_chip_deposit_0_3_1_postgres.py`
