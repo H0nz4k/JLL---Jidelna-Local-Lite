@@ -13,7 +13,10 @@ from decimal import Decimal
 from typing import Any, Mapping
 
 import psycopg
+from psycopg import sql
 from psycopg.rows import dict_row
+
+from .orders.repository import DAY_COLUMNS
 
 LOGGER = logging.getLogger(__name__)
 
@@ -97,6 +100,66 @@ class ServingRepository:
             cursor.execute(
                 "SELECT * FROM public.stravy_k_vydeji(%s)",
                 (evidcislo,),
+            )
+            rows = cursor.fetchall()
+        return tuple(MealReadyRow(raw=dict(row)) for row in rows)
+
+    def stravy_k_manualni_odber(self, evidcislo: int) -> tuple[MealReadyRow, ...]:
+        """Dnešní přihlášky k ručnímu odběru bez filtru výdejního okna.
+
+        Čipový výdej dál používá ``stravy_k_vydeji`` (včetně ``vydejod``/``vydejdo``).
+        Ruční odběr z karty strávníka záměrně neomezuje čas ani výdejní ``relace``.
+        """
+
+        if evidcislo <= 0:
+            raise ValueError("evidcislo musí být kladné.")
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute("SELECT CURRENT_DATE AS today")
+            today = cursor.fetchone()
+            if today is None or today.get("today") is None:
+                raise RuntimeError("CURRENT_DATE nelze načíst.")
+            day_date = today["today"]
+        day_num = int(day_date.day)
+        day_col = sql.Identifier(DAY_COLUMNS[day_num - 1])
+        query = sql.SQL(
+            """
+            SELECT
+                btrim(p.typsluzby)::character varying AS typ_stravy,
+                p.{day}::character varying AS menu,
+                CASE
+                    WHEN COALESCE(substr(o.odebral, %(day_num)s, 1), '') = '' THEN 'X'
+                    WHEN substr(o.odebral, %(day_num)s, 1) = '.' THEN 'X'
+                    ELSE substr(o.odebral, %(day_num)s, 1)
+                END::character varying AS odebrano,
+                (
+                    COALESCE(substr(o.odebral, %(day_num)s, 1), '') = ''
+                    OR substr(o.odebral, %(day_num)s, 1) <> 'O'
+                ) AS vydat,
+                NULL::integer AS vydejni_misto,
+                p.id AS id_prihlasky
+            FROM public.prihlas AS p
+            LEFT JOIN public.odebral AS o
+              ON o.stravnik = p.stravnik
+             AND o.rok = p.rok
+             AND o.mesic = p.mesic
+             AND lower(btrim(o.typstravy)) = lower(btrim(p.typsluzby))
+             AND o.poradiprihl = p.poradiprihl
+            WHERE p.rok = %(year)s
+              AND p.mesic = %(month)s
+              AND p.stravnik = %(evidcislo)s
+              AND p.{day} ~ '^[1-9]$'
+            ORDER BY btrim(p.typsluzby), p.{day}, p.id
+            """
+        ).format(day=day_col)
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                query,
+                {
+                    "day_num": day_num,
+                    "year": int(day_date.year),
+                    "month": int(day_date.month),
+                    "evidcislo": evidcislo,
+                },
             )
             rows = cursor.fetchall()
         return tuple(MealReadyRow(raw=dict(row)) for row in rows)

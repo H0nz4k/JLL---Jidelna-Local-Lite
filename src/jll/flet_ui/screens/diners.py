@@ -192,17 +192,36 @@ class DinersScreen:
             expand=False,
         )
         list_panel.width = theme.LIST_WIDTH
-        detail_panel = self._panel(self.detail, expand=True)
+        # Detail je workspace: bez silného bordered expand panelu (empty state).
+        detail_host = ft.Container(
+            content=self.detail,
+            expand=True,
+            bgcolor=theme.COLORS["background"],
+            padding=ft.padding.only(left=theme.SPACING["sm"]),
+            alignment=ft.alignment.top_left,
+        )
         if not self.vm.can_view():
             return empty_state(
                 "Strávníci",
                 "Nemáte oprávnění zobrazit strávníky.",
             )
         self.detail.controls = [
-            empty_state("Vyberte strávníka", "Hledejte vlevo a otevřete kartu.")
+            ft.Container(
+                content=empty_state(
+                    "Vyberte strávníka",
+                    "Hledejte vlevo a otevřete kartu.",
+                ),
+                padding=theme.SPACING["md"],
+                bgcolor=theme.COLORS["surface"],
+                border=ft.border.all(
+                    theme.CONTENT_BORDER_WIDTH, theme.COLORS["border"]
+                ),
+                border_radius=6,
+                width=420,
+            )
         ]
         root = ft.Row(
-            [list_panel, detail_panel],
+            [list_panel, detail_host],
             expand=True,
             spacing=theme.SPACING["md"],
             vertical_alignment=ft.CrossAxisAlignment.STRETCH,
@@ -319,58 +338,64 @@ class DinersScreen:
         edit = self.state.diner_edit_state()
         chip_view = self.state.chip_view_state()
         create = self.state.diner_create_state()
-        assign = self.state.chip_assign_state()
-        ret = self.state.chip_return_state()
-        block = self.state.chip_block_state()
-        lost = self.state.chip_lost_state()
-        unblock = self.state.chip_unblock_state()
 
-        title = ft.Text(
-            diner.name,
-            size=theme.role_size(theme.TextRole.PRIMARY),
-            weight=ft.FontWeight.W_700,
-            overflow=ft.TextOverflow.ELLIPSIS,
-            max_lines=1,
-        )
         info_size = theme.role_size(theme.TextRole.BODY)
-        meta = ft.Text(
-            f"{diner.class_name or diner.category} · ev. {diner.evidcislo}",
+        meta_size = theme.role_size(theme.TextRole.META)
+        primary_size = theme.role_size(theme.TextRole.PRIMARY)
+        credit_value = diner.available_credit
+        credit_text = self.vm.format_credit(credit_value)
+        credit_color = (
+            theme.COLORS["danger"]
+            if credit_value < 0
+            else theme.COLORS["text_primary"]
+        )
+        chip_bit = f"Čip {diner.chip_number}" if diner.chip_number else "Bez čipu"
+        row1 = ft.Row(
+            [
+                ft.Text(
+                    diner.name,
+                    size=primary_size,
+                    weight=ft.FontWeight.W_700,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                    max_lines=1,
+                ),
+                ft.Text(
+                    spans=[
+                        ft.TextSpan(
+                            "Kredit ",
+                            ft.TextStyle(
+                                size=meta_size,
+                                color=theme.COLORS["text_secondary"],
+                                weight=ft.FontWeight.W_600,
+                            ),
+                        ),
+                        ft.TextSpan(
+                            credit_text,
+                            ft.TextStyle(
+                                size=primary_size,
+                                color=credit_color,
+                                weight=ft.FontWeight.W_700,
+                            ),
+                        ),
+                    ],
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                    max_lines=1,
+                ),
+            ],
+            spacing=theme.SPACING["xl"],
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            tight=True,
+            wrap=True,
+        )
+        row2 = ft.Text(
+            f"{diner.class_name or diner.category} · ev. {diner.evidcislo} · {chip_bit}",
             size=info_size,
             color=theme.COLORS["text_secondary"],
             weight=ft.FontWeight.W_500,
-        )
-        credit_text = self.vm.format_credit(diner.available_credit)
-        finance = ft.Text(
-            spans=[
-                ft.TextSpan(
-                    "Kredit ",
-                    ft.TextStyle(
-                        size=info_size,
-                        color=theme.COLORS["text_secondary"],
-                        weight=ft.FontWeight.W_500,
-                    ),
-                ),
-                ft.TextSpan(
-                    credit_text,
-                    ft.TextStyle(
-                        size=info_size,
-                        color=theme.COLORS["text_primary"],
-                        weight=ft.FontWeight.W_700,
-                    ),
-                ),
-                ft.TextSpan(
-                    f"   Čip {diner.chip_number or '—'}",
-                    ft.TextStyle(
-                        size=info_size,
-                        color=theme.COLORS["text_secondary"],
-                        weight=ft.FontWeight.W_500,
-                    ),
-                ),
-            ],
             overflow=ft.TextOverflow.ELLIPSIS,
-            max_lines=1,
+            max_lines=2,
         )
-        actions = ft.Row(
+        row3 = ft.Row(
             [
                 ft.OutlinedButton(
                     "Upravit",
@@ -379,10 +404,11 @@ class DinersScreen:
                     style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=12, vertical=4)),
                     on_click=lambda _e: self._open_edit_dialog(),
                 ),
-                ft.TextButton(
+                ft.OutlinedButton(
                     "Detail čipu",
                     disabled=not chip_view.allowed,
                     tooltip=disabled_hint(chip_view) or "Náhled čipu",
+                    style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=12, vertical=4)),
                     on_click=lambda _e: self._open_chip_detail(),
                 ),
                 ft.FilledButton(
@@ -400,57 +426,10 @@ class DinersScreen:
             ],
             spacing=theme.SPACING["xs"],
             tight=True,
-            wrap=False,
-        )
-        chip_actions = ft.Row(
-            [
-                ft.TextButton(
-                    "Přidělit",
-                    disabled=not assign.allowed,
-                    tooltip=disabled_hint(assign) or None,
-                    on_click=lambda _e: self._chip_assign(),
-                ),
-                ft.TextButton(
-                    "Vrátit",
-                    disabled=not ret.allowed,
-                    tooltip=disabled_hint(ret) or None,
-                    on_click=lambda _e: self._chip_return(),
-                ),
-                ft.TextButton(
-                    "Blokovat",
-                    disabled=not block.allowed,
-                    tooltip=disabled_hint(block) or None,
-                    on_click=lambda _e: self._chip_block(),
-                ),
-                ft.TextButton(
-                    "Odblokovat",
-                    disabled=not unblock.allowed,
-                    tooltip=disabled_hint(unblock) or None,
-                    on_click=lambda _e: self._chip_unblock(),
-                ),
-                ft.TextButton(
-                    "Ztracený",
-                    disabled=not lost.allowed,
-                    tooltip=disabled_hint(lost) or None,
-                    on_click=lambda _e: self._chip_lost(),
-                ),
-            ],
-            spacing=theme.SPACING["xs"],
-            tight=True,
             wrap=True,
         )
         header = ft.Column(
-            [
-                ft.Row(
-                    [
-                        ft.Column([title, meta, finance], spacing=2, tight=True, expand=True),
-                        actions,
-                    ],
-                    vertical_alignment=ft.CrossAxisAlignment.START,
-                    spacing=theme.SPACING["sm"],
-                ),
-                chip_actions,
-            ],
+            [row1, row2, row3],
             spacing=theme.SPACING["xs"],
             tight=True,
         )
@@ -1028,7 +1007,7 @@ class DinersScreen:
             return
         evidcislo = self._day.diner.evidcislo
         try:
-            meals = service.meals_ready(evidcislo)
+            meals = service.meals_ready_manual(evidcislo)
         except Exception as exc:
             message_dialog(self.page, title="Odběr", body=str(exc))
             return
@@ -1268,6 +1247,30 @@ class DinersScreen:
         dialog.open = True
         self.page.update()
 
+    def _primary_chip_status(self) -> str | None:
+        if self._day is None:
+            return None
+        diner = self._day.diner
+        if diner.chips:
+            for chip in diner.chips:
+                if diner.chip_number and chip.code == diner.chip_number:
+                    return chip.status_code
+            return diner.chips[0].status_code
+        if diner.chip_number:
+            return "P"
+        return None
+
+    def _chip_actions_for_status(self, status_code: str | None) -> list[str]:
+        """UI relevance labels for chip detail modal (permission still applied)."""
+
+        if status_code is None:
+            return ["assign"]
+        if status_code == "P":
+            return ["return", "block", "lost"]
+        if status_code == "B":
+            return ["unblock"]
+        return ["assign"]
+
     def _open_chip_detail(self) -> None:
         if self._day is None:
             return
@@ -1280,15 +1283,28 @@ class DinersScreen:
             )
             return
         diner = self._day.diner
-        lines: list[str] = []
+        assign = self.state.chip_assign_state()
+        ret = self.state.chip_return_state()
+        block = self.state.chip_block_state()
+        lost = self.state.chip_lost_state()
+        unblock = self.state.chip_unblock_state()
+        status_code = self._primary_chip_status()
+        wanted = set(self._chip_actions_for_status(status_code))
+
         if diner.chips:
-            for chip in diner.chips:
-                lines.append(f"{chip.code} · {chip.status_label}")
+            chip_code = diner.chip_number or diner.chips[0].code
+            status_label = next(
+                (chip.status_label for chip in diner.chips if chip.code == chip_code),
+                diner.chips[0].status_label,
+            )
         elif diner.chip_number:
-            lines.append(f"{diner.chip_number} · aktuální na kartě")
+            chip_code = diner.chip_number
+            status_label = "Přidělen"
         else:
-            lines.append("Strávník nemá evidovaný čip.")
-        history_lines: list[str] = []
+            chip_code = "—"
+            status_label = "Bez čipu"
+
+        history_controls: list[ft.Control] = []
         service = self.state.chip_command_service
         if service is not None:
             try:
@@ -1299,15 +1315,136 @@ class DinersScreen:
                         if item.issued_at is not None
                         else "—"
                     )
-                    history_lines.append(
-                        f"{when} · {item.code} · {item.status_label}"
+                    history_controls.append(
+                        ft.Text(
+                            f"{when} · {item.code} · {item.status_label}",
+                            size=theme.role_size(theme.TextRole.META),
+                            color=theme.COLORS["text_secondary"],
+                        )
                     )
             except Exception:
-                history_lines = []
-        body = "\n".join(lines)
-        if history_lines:
-            body = body + "\n\nHistorie:\n" + "\n".join(history_lines)
-        message_dialog(self.page, title="Detail čipu", body=body)
+                history_controls = []
+        if not history_controls:
+            history_controls.append(
+                ft.Text(
+                    "Žádná historie.",
+                    size=theme.role_size(theme.TextRole.META),
+                    color=theme.COLORS["text_secondary"],
+                )
+            )
+
+        def _field(label: str, value: str) -> ft.Control:
+            return ft.Column(
+                [
+                    ft.Text(
+                        label,
+                        size=theme.role_size(theme.TextRole.META),
+                        color=theme.COLORS["text_secondary"],
+                        weight=ft.FontWeight.W_600,
+                    ),
+                    ft.Text(
+                        value,
+                        size=theme.role_size(theme.TextRole.BODY),
+                        weight=ft.FontWeight.W_600,
+                        selectable=True,
+                    ),
+                ],
+                spacing=2,
+                tight=True,
+            )
+
+        actions: list[ft.Control] = []
+        if "assign" in wanted:
+            actions.append(
+                ft.FilledButton(
+                    "Přidělit čip",
+                    disabled=not assign.allowed,
+                    tooltip=disabled_hint(assign) or None,
+                    on_click=lambda _e: self._chip_assign(),
+                )
+            )
+        if "return" in wanted:
+            actions.append(
+                ft.OutlinedButton(
+                    "Vrátit",
+                    disabled=not ret.allowed,
+                    tooltip=disabled_hint(ret) or None,
+                    on_click=lambda _e: self._chip_return(),
+                )
+            )
+        if "block" in wanted:
+            actions.append(
+                ft.OutlinedButton(
+                    "Blokovat",
+                    disabled=not block.allowed,
+                    tooltip=disabled_hint(block) or None,
+                    on_click=lambda _e: self._chip_block(),
+                )
+            )
+        if "lost" in wanted:
+            actions.append(
+                ft.OutlinedButton(
+                    "Označit jako ztracený",
+                    disabled=not lost.allowed,
+                    tooltip=disabled_hint(lost) or None,
+                    on_click=lambda _e: self._chip_lost(),
+                )
+            )
+        if "unblock" in wanted:
+            actions.append(
+                ft.FilledButton(
+                    "Odblokovat",
+                    disabled=not unblock.allowed,
+                    tooltip=disabled_hint(unblock) or None,
+                    on_click=lambda _e: self._chip_unblock(),
+                )
+            )
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(
+                "Detail čipu",
+                size=theme.role_size(theme.TextRole.PRIMARY),
+                weight=ft.FontWeight.W_700,
+            ),
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        _field("Čip", chip_code),
+                        _field("Stav", status_label),
+                        _field("Držitel", f"{diner.name} · ev. {diner.evidcislo}"),
+                        ft.Text(
+                            "Historie",
+                            size=theme.role_size(theme.TextRole.META),
+                            color=theme.COLORS["text_secondary"],
+                            weight=ft.FontWeight.W_600,
+                        ),
+                        ft.Container(
+                            content=ft.Column(
+                                history_controls,
+                                spacing=2,
+                                tight=True,
+                                scroll=ft.ScrollMode.AUTO,
+                            ),
+                            height=160,
+                        ),
+                        ft.Row(actions, spacing=theme.SPACING["sm"], wrap=True, tight=True),
+                    ],
+                    spacing=theme.SPACING["sm"],
+                    tight=True,
+                ),
+                width=560,
+            ),
+            actions=[
+                ft.TextButton(
+                    "Zavřít",
+                    on_click=lambda _e: setattr(dialog, "open", False) or self.page.update(),
+                )
+            ],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
 
     def _chip_code_for_action(self) -> str | None:
         if self._day is None:

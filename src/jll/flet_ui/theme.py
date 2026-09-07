@@ -89,6 +89,17 @@ DETAIL_RATIO = 0.82
 WINDOW_WIDTH = 1366
 WINDOW_HEIGHT = 768
 BLOCK_BORDER_WIDTH = 2
+CONTENT_BORDER_WIDTH = 1
+
+# Content-driven šířky Administrace (UI polish).
+ADMIN_CONTENT_WIDTH: dict[str, int] = {
+    "Uživatelé": 980,
+    "Oprávnění": 980,
+    "Kategorie": 560,
+    "Info": 760,
+    "Čtečka": 720,
+    "Vzhled": 680,
+}
 
 _active_scale: TextScale = TextScale.NORMAL
 

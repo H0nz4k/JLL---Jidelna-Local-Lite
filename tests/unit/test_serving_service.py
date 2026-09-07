@@ -11,7 +11,7 @@ import pytest
 from jll.orders.errors import ErrorCode, OrderBusinessError
 from jll.orders.models import OrderServiceSettings
 from jll.policy import Permission, SessionPolicy
-from jll.serving_repository import ServingRepository
+from jll.serving_repository import MealReadyRow, ServingRepository
 from jll.serving_service import ServingService
 from jll.write_gates import SERVING_WRITE_GATES, require_proven
 
@@ -141,9 +141,63 @@ def test_require_proven_record_pickup_gate_enabled() -> None:
     require_proven(SERVING_WRITE_GATES, "record_pickup")
 
 
-def test_record_pickup_rejects_mismatched_evidcislo(
+def test_meals_ready_manual_uses_manual_repository_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        ServingRepository,
+        "lab_identity",
+        lambda self: {
+            "database_name": "jll_demo_lab",
+            "server_address": "127.0.0.1",
+            "system_identifier": SYSTEM_IDENTIFIER,
+        },
+    )
+    timed = MagicMock(return_value=())
+    manual = MagicMock(
+        return_value=(
+            MealReadyRow(
+                raw={
+                    "typ_stravy": "Oběd-B",
+                    "menu": "1",
+                    "odebrano": "X",
+                    "vydat": True,
+                    "vydejni_misto": None,
+                    "id_prihlasky": 259960,
+                }
+            ),
+        )
+    )
+    monkeypatch.setattr(ServingRepository, "stravy_k_vydeji", timed)
+    monkeypatch.setattr(ServingRepository, "stravy_k_manualni_odber", manual)
+
+    class _Conn(_FakeConnection):
+        def cursor(self, row_factory: object | None = None) -> FakeCursor:
+            cursor = FakeCursor(self)
+
+            def execute(sql: str, params: object | None = None) -> None:
+                text = " ".join(str(sql).split())
+                if "FROM public.stravnik" in text:
+                    cursor._row = ("KAT1",)
+                    return
+                cursor._row = None
+
+            cursor.execute = execute  # type: ignore[method-assign]
+            return cursor
+
+    conn = _Conn(prihlas_row=(10, "KAT1"))
+
+    service = ServingService(
+        lambda: conn,
+        lambda: policy(),
+        lab_settings(),
+    )
+    rows = service.meals_ready_manual(10)
+    assert len(rows) == 1
+    assert rows[0].raw["id_prihlasky"] == 259960
+    manual.assert_called_once_with(10)
+    timed.assert_not_called()
+
     monkeypatch.setattr(
         ServingRepository,
         "lab_identity",

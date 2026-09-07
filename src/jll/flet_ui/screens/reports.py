@@ -39,7 +39,12 @@ class ReportsScreen:
         self._report: DailyReport | None = None
         self.tabs_row = ft.Row(spacing=theme.SPACING["sm"], wrap=True)
         self.filter_row = ft.Row(spacing=theme.SPACING["sm"], wrap=True)
-        self.content = ft.Column(expand=True, spacing=theme.SPACING["sm"], scroll=None)
+        self.content = ft.Column(
+            expand=True,
+            spacing=theme.SPACING["xs"],
+            scroll=ft.ScrollMode.AUTO,
+            tight=True,
+        )
         self.actions = ft.Row(spacing=theme.SPACING["sm"])
         self.root = ft.Column(
             [
@@ -52,18 +57,20 @@ class ReportsScreen:
                 self.filter_row,
                 ft.Container(
                     content=self.content,
-                    expand=True,
+                    width=520,
                     bgcolor=theme.COLORS["surface"],
                     border=ft.border.all(
                         theme.BLOCK_BORDER_WIDTH, theme.COLORS["block_border"]
                     ),
                     border_radius=8,
                     padding=theme.SPACING["md"],
+                    alignment=ft.alignment.top_left,
                 ),
                 self.actions,
             ],
             expand=True,
             spacing=theme.SPACING["md"],
+            scroll=ft.ScrollMode.AUTO,
         )
         if self.vm.can_view():
             self._reload()
@@ -175,27 +182,30 @@ class ReportsScreen:
     def _header_meta(self) -> list[ft.Control]:
         assert self._target is not None and self._report is not None
         return [
-            ft.Text(
-                self._target.strftime("%d. %m. %Y"),
-                size=theme.role_size(theme.TextRole.META),
-                color=theme.COLORS["text_secondary"],
-            ),
             ft.Row(
                 [
                     ft.Text(
+                        self._target.strftime("%d. %m. %Y"),
+                        size=theme.role_size(theme.TextRole.BODY),
+                        color=theme.COLORS["text_secondary"],
+                        weight=ft.FontWeight.W_600,
+                    ),
+                    ft.Container(expand=True),
+                    ft.Text(
                         "Porcí celkem",
-                        size=theme.role_size(theme.TextRole.ACTION),
+                        size=theme.role_size(theme.TextRole.META),
                         color=theme.COLORS["text_secondary"],
                     ),
                     ft.Text(
                         str(self._report.total_portions),
-                        size=28,
+                        size=theme.role_size(theme.TextRole.PRIMARY),
                         weight=ft.FontWeight.W_700,
                         color=theme.COLORS["accent"],
                     ),
                 ],
                 spacing=theme.SPACING["sm"],
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                tight=True,
             ),
         ]
 
@@ -229,14 +239,18 @@ class ReportsScreen:
                     ),
                     ft.Text(
                         str(count),
-                        size=26,
+                        size=theme.role_size(theme.TextRole.BODY),
                         weight=ft.FontWeight.W_700,
                         color=theme.COLORS["accent"],
+                        width=40,
+                        text_align=ft.TextAlign.RIGHT,
                     ),
                 ],
+                spacing=theme.SPACING["md"],
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                tight=True,
             ),
-            padding=ft.padding.symmetric(vertical=4),
+            padding=ft.padding.symmetric(vertical=2),
         )
 
     def _categories_lines(self, report: DailyReport) -> list[ft.Control]:
@@ -286,8 +300,8 @@ class ReportsScreen:
                 size=theme.role_size(theme.TextRole.META),
                 color=theme.COLORS["text_secondary"],
             )
-        # Jen jmenný seznam smí scrollovat — zbytek sestav bez scrolleru.
-        return ft.ListView(controls=rows, expand=True, spacing=2, padding=0)
+        # Jmenný seznam scrolluje uvnitř panelu; výška podle obsahu, ne přes celou obrazovku.
+        return ft.Column(controls=rows, spacing=2, tight=True, scroll=ft.ScrollMode.AUTO)
 
     def _preview(self) -> None:
         if self._report is None or self._target is None:

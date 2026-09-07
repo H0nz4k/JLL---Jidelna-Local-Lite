@@ -75,6 +75,35 @@ class ServingService:
                 )
             return repository.stravy_k_vydeji(evidcislo)
 
+    def meals_ready_manual(self, evidcislo: int) -> tuple[MealReadyRow, ...]:
+        """Ruční odběr: dnešní přihlášky bez filtru výdejního okna."""
+
+        policy = self._policy_provider()
+        policy.require(Permission.PICKUP_STATUS_VIEW)
+        scope = policy.scope()
+        with self._connection_factory() as connection:
+            if hasattr(connection, "autocommit") and not connection.autocommit:
+                connection.autocommit = True
+            repository = ServingRepository(connection)
+            assert_lab_identity(self._settings, repository.lab_identity())
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT kategorie FROM public.stravnik
+                    WHERE evidcislo = %s
+                      AND stav = 'A'
+                      AND COALESCE(deleted, false) = false
+                    """,
+                    (evidcislo,),
+                )
+                row = cursor.fetchone()
+            if row is None or str(row[0]) not in scope:
+                raise OrderBusinessError(
+                    ErrorCode.OUT_OF_SCOPE_OR_INACTIVE,
+                    "Strávník pro výdej není v povoleném scope.",
+                )
+            return repository.stravy_k_manualni_odber(evidcislo)
+
     def record_pickup(
         self,
         prihlaska_id: int,
