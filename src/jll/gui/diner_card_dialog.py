@@ -70,9 +70,13 @@ class DinerFormDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(theme.SPACING["md"])
 
-        banner = QLabel(SAVE_BLOCKED_TEXT)
+        banner = QLabel(
+            "Uložení je dostupné přes ověřený write gate."
+            if gate.enabled
+            else SAVE_BLOCKED_TEXT
+        )
         banner.setWordWrap(True)
-        banner.setProperty("tone", "danger")
+        banner.setProperty("tone", "danger" if not gate.enabled else "ok")
         theme.apply_role(banner, TextRole.ACTION)
         layout.addWidget(banner)
 
@@ -106,7 +110,7 @@ class DinerFormDialog(QDialog):
             ("note", "Poznámka:", (profile.note or "") if profile else ""),
         ):
             field = QLineEdit(value)
-            field.setReadOnly(True)
+            field.setReadOnly(not gate.enabled or key in {"evidcislo", "category", "payment_method", "variable_symbol", "birth_date"})
             theme.apply_role(field, TextRole.BODY)
             self.fields[key] = field
             form.addRow(label, field)
@@ -114,8 +118,12 @@ class DinerFormDialog(QDialog):
 
         if profile is None:
             hint = QLabel(
-                "Evidenční číslo nového strávníka nelze bezpečně přidělit. "
-                "Odvození z MAX(evidcislo)+1 není doložené jako bezpečné."
+                "Evidenční číslo přidělí public.pridel_cislo_stravnika."
+                if gate.enabled
+                else (
+                    "Evidenční číslo nového strávníka nelze bezpečně přidělit. "
+                    "Odvození z MAX(evidcislo)+1 není doložené jako bezpečné."
+                )
             )
             hint.setWordWrap(True)
             theme.apply_role(hint, TextRole.META)

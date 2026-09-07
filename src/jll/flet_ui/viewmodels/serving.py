@@ -24,3 +24,6 @@ class ServingViewModel:
 
     def remaining_total(self, rows: list[PickupStatusRow]) -> int:
         return sum(max(0, row.remaining) for row in rows)
+
+    def ordered_total(self, rows: list[PickupStatusRow]) -> int:
+        return sum(max(0, row.ordered) for row in rows)

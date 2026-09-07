@@ -33,7 +33,7 @@ class ServingScreen:
     def control(self) -> ft.Control:
         return self.root
 
-    def _card(self, content: ft.Control, *, expand: bool = False) -> ft.Container:
+    def _card(self, content: ft.Control) -> ft.Container:
         return ft.Container(
             content=content,
             bgcolor=theme.COLORS["surface"],
@@ -42,7 +42,27 @@ class ServingScreen:
             ),
             border_radius=8,
             padding=theme.SPACING["md"],
-            expand=expand,
+        )
+
+    def _metric(self, label: str, value: int, *, emphasize: bool = False) -> ft.Control:
+        return ft.Column(
+            [
+                ft.Text(
+                    label,
+                    size=theme.role_size(theme.TextRole.META),
+                    color=theme.COLORS["text_secondary"],
+                    weight=ft.FontWeight.W_600,
+                ),
+                ft.Text(
+                    str(value),
+                    size=theme.role_size(theme.TextRole.PRIMARY) + (6 if emphasize else 0),
+                    weight=ft.FontWeight.W_700,
+                    color=theme.COLORS["accent"] if emphasize else theme.COLORS["text_primary"],
+                ),
+            ],
+            spacing=0,
+            tight=True,
+            horizontal_alignment=ft.CrossAxisAlignment.START,
         )
 
     def refresh(self) -> None:
@@ -58,35 +78,23 @@ class ServingScreen:
             self.body.controls.append(empty_state("Chyba", str(exc)))
             return
 
-        remaining = self.vm.remaining_total(rows)
+        ordered_total = self.vm.ordered_total(rows)
+        remaining_total = self.vm.remaining_total(rows)
         hero = self._card(
             ft.Row(
                 [
-                    ft.Column(
-                        [
-                            ft.Text(
-                                day.strftime("%d. %m. %Y"),
-                                size=theme.role_size(theme.TextRole.META),
-                                color=theme.COLORS["text_secondary"],
-                            ),
-                            ft.Text(
-                                "ZBÝVÁ CELKEM",
-                                size=theme.role_size(theme.TextRole.ACTION),
-                                color=theme.COLORS["text_secondary"],
-                                weight=ft.FontWeight.W_600,
-                            ),
-                        ],
-                        spacing=2,
-                        tight=True,
-                        expand=True,
-                    ),
                     ft.Text(
-                        str(remaining),
-                        size=48,
-                        weight=ft.FontWeight.W_700,
-                        color=theme.COLORS["accent"],
+                        day.strftime("%d. %m. %Y"),
+                        size=theme.role_size(theme.TextRole.BODY),
+                        color=theme.COLORS["text_secondary"],
+                        weight=ft.FontWeight.W_600,
                     ),
+                    ft.Container(expand=True),
+                    self._metric("Celkem", ordered_total),
+                    ft.Container(width=theme.SPACING["xl"]),
+                    self._metric("Zbývá", remaining_total, emphasize=True),
                 ],
+                spacing=theme.SPACING["lg"],
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             )
         )
@@ -98,32 +106,38 @@ class ServingScreen:
 
         cards: list[ft.Control] = []
         for meal_type, items in groups.items():
+            meal_ordered = sum(max(0, item.ordered) for item in items)
             meal_remaining = sum(max(0, item.remaining) for item in items)
             menu_rows: list[ft.Control] = []
             for item in items:
+                remaining = max(0, item.remaining)
                 menu_rows.append(
-                    ft.Row(
-                        [
-                            ft.Text(
-                                f"Menu {item.menu}",
-                                size=theme.role_size(theme.TextRole.BODY),
-                                expand=True,
-                            ),
-                            ft.Text(
-                                str(max(0, item.remaining)),
-                                size=theme.role_size(theme.TextRole.PRIMARY),
-                                weight=ft.FontWeight.W_700,
-                                color=theme.COLORS["accent"],
-                            ),
-                            ft.Text(
-                                f"obj. {item.ordered} · vyd. {item.picked_up}",
-                                size=theme.role_size(theme.TextRole.META),
-                                color=theme.COLORS["text_secondary"],
-                                width=120,
-                                text_align=ft.TextAlign.RIGHT,
-                            ),
-                        ],
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ft.Container(
+                        content=ft.Row(
+                            [
+                                ft.Text(
+                                    f"Menu {item.menu}",
+                                    size=theme.role_size(theme.TextRole.BODY),
+                                    weight=ft.FontWeight.W_600,
+                                    width=72,
+                                ),
+                                ft.Text(
+                                    f"celkem {item.ordered}",
+                                    size=theme.role_size(theme.TextRole.BODY),
+                                    color=theme.COLORS["text_secondary"],
+                                ),
+                                ft.Text(
+                                    f"zbývá {remaining}",
+                                    size=theme.role_size(theme.TextRole.BODY),
+                                    weight=ft.FontWeight.W_700,
+                                    color=theme.COLORS["accent"],
+                                ),
+                            ],
+                            spacing=theme.SPACING["md"],
+                            tight=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        padding=ft.padding.symmetric(vertical=2),
                     )
                 )
             cards.append(
@@ -136,15 +150,21 @@ class ServingScreen:
                                         meal_type,
                                         size=theme.role_size(theme.TextRole.ACTION),
                                         weight=ft.FontWeight.W_700,
-                                        expand=True,
+                                    ),
+                                    ft.Container(expand=True),
+                                    ft.Text(
+                                        f"celkem {meal_ordered}",
+                                        size=theme.role_size(theme.TextRole.META),
+                                        color=theme.COLORS["text_secondary"],
                                     ),
                                     ft.Text(
-                                        str(meal_remaining),
-                                        size=32,
+                                        f"zbývá {meal_remaining}",
+                                        size=theme.role_size(theme.TextRole.ACTION),
                                         weight=ft.FontWeight.W_700,
                                         color=theme.COLORS["accent"],
                                     ),
                                 ],
+                                spacing=theme.SPACING["md"],
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
                             ft.Divider(height=1, color=theme.COLORS["border"]),
@@ -162,12 +182,19 @@ class ServingScreen:
             )
             return
 
-        # Dvě karty vedle sebe, zbytek pod sebou — přehledné bez scrolleru.
-        row_chunk: list[ft.Control] = []
-        for idx, card in enumerate(cards):
-            row_chunk.append(ft.Container(content=card, expand=True))
-            if len(row_chunk) == 2 or idx == len(cards) - 1:
-                self.body.controls.append(
-                    ft.Row(row_chunk, spacing=theme.SPACING["md"])
+        # Kompaktní mřížka max 2 sloupce, karty bez zbytečného roztahování textu.
+        grid = ft.ResponsiveRow(
+            [
+                ft.Container(
+                    content=card,
+                    col={"xs": 12, "md": 6, "lg": 6},
+                    padding=ft.padding.only(bottom=theme.SPACING["sm"]),
                 )
-                row_chunk = []
+                for card in cards
+            ],
+            spacing=theme.SPACING["md"],
+            run_spacing=theme.SPACING["md"],
+        )
+        self.body.controls.append(
+            ft.Container(content=grid, width=920, alignment=ft.alignment.top_left)
+        )

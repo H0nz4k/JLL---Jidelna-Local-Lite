@@ -674,9 +674,13 @@ class MainWindow(QMainWindow):
         if gate.enabled:
             button.setToolTip(gate.tooltip)
             button.setProperty("gateBadge", None)
+            button.setProperty("contractStatus", gate.status.value)
+            if self._lab_guard_verified:
+                button.setEnabled(True)
         else:
             button.setToolTip(gate.tooltip)
             button.setProperty("gateBadge", gate.badge)
+            button.setProperty("contractStatus", gate.status.value)
             if gate.badge and gate.badge not in button.text():
                 # Zachovej původní text; badge je jen v tooltipu/property.
                 pass

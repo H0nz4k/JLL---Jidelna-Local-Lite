@@ -80,20 +80,36 @@ def app_shell(
         tight=True,
     )
 
+    right = ft.Row(
+        [
+            user_chip(state, _open_users),
+            ft.IconButton(
+                icon=ft.Icons.MONITOR_HEART_OUTLINED,
+                tooltip="Diagnostika",
+                on_click=lambda _e: on_diagnostics(),
+            ),
+            lab_badge(),
+        ],
+        spacing=theme.SPACING["sm"],
+        tight=True,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    )
+
     header = ft.Container(
         content=ft.Row(
             [
-                brand,
-                ft.Container(content=navigation_bar(state.route, on_route), expand=True),
-                user_chip(state, _open_users),
-                ft.IconButton(
-                    icon=ft.Icons.MONITOR_HEART_OUTLINED,
-                    tooltip="Diagnostika",
-                    on_click=lambda _e: on_diagnostics(),
+                ft.Container(content=brand, expand=True),
+                ft.Container(
+                    content=navigation_bar(state.route, on_route),
+                    alignment=ft.alignment.center,
                 ),
-                lab_badge(),
+                ft.Container(
+                    content=right,
+                    expand=True,
+                    alignment=ft.alignment.center_right,
+                ),
             ],
-            spacing=theme.SPACING["md"],
+            spacing=theme.SPACING["lg"],
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
         padding=ft.padding.symmetric(

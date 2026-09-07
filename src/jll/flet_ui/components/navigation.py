@@ -55,7 +55,7 @@ def navigation_bar(active: Route, on_change) -> ft.Control:
         )
     return ft.Row(
         items,
-        spacing=theme.SPACING["sm"],
+        spacing=theme.SPACING["md"],
         tight=True,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
     )
