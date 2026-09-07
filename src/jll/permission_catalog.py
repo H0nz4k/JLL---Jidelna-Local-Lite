@@ -73,6 +73,18 @@ PERMISSION_CATALOG: tuple[PermissionMeta, ...] = (
         "Evidence ztraceného čipu.",
     ),
     PermissionMeta(
+        Permission.PAYMENTS_VIEW,
+        "PLATBY",
+        "Zobrazit platby",
+        "Historie a detail plateb / záloh za čip na kartě strávníka.",
+    ),
+    PermissionMeta(
+        Permission.PAYMENTS_POST,
+        "PLATBY",
+        "Zaúčtovat platbu",
+        "Ruční zaúčtování platby a finanční záloha/vratka za čip.",
+    ),
+    PermissionMeta(
         Permission.ORDERS_VIEW,
         "OBJEDNÁVKY",
         "Zobrazit objednávky",
@@ -151,6 +163,7 @@ _BY_PERMISSION = {item.permission: item for item in PERMISSION_CATALOG}
 GROUP_ORDER: tuple[str, ...] = (
     "STRÁVNÍCI",
     "ČIPY",
+    "PLATBY",
     "OBJEDNÁVKY",
     "PROVOZ",
     "ADMINISTRACE",

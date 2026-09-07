@@ -32,6 +32,8 @@ VED_DEFAULT_PERMISSIONS = frozenset(
         Permission.CHIPS_RETURN,
         Permission.CHIPS_BLOCK,
         Permission.CHIPS_LOST,
+        Permission.PAYMENTS_VIEW,
+        Permission.PAYMENTS_POST,
         Permission.ORDERS_VIEW,
         Permission.ORDERS_CHANGE,
         Permission.PICKUP_STATUS_VIEW,

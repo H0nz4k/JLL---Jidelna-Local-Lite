@@ -20,6 +20,8 @@ from ..policy import Permission
 from ..read_service import OrderReadService
 from ..chip_command_service import ChipCommandService
 from ..diner_service import DinerService
+from ..payment_history_service import PaymentHistoryService
+from ..payment_service import PaymentService
 from ..serving_service import ServingService
 from ..sup_secret import SupSecretStore
 from ..version import application_version
@@ -138,10 +140,21 @@ class FletAppController:
             business.current_policy,
             config.order_settings,
         )
+        self.state.payment_history_service = PaymentHistoryService(
+            pool.connection,
+            business.current_policy,
+            config.order_settings,
+        )
+        self.state.payment_service = PaymentService(
+            pool.connection,
+            business.current_policy,
+            config.order_settings,
+        )
         self.state.chip_command_service = ChipCommandService(
             pool.connection,
             business.current_policy,
             config.order_settings,
+            payment_service=self.state.payment_service,
         )
         try:
             self.state.diagnostics = self.state.read_service.verify_lab()

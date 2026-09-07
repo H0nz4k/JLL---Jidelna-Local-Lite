@@ -28,3 +28,15 @@ def test_proven_gates_are_enabled() -> None:
     assert DINER_WRITE_GATES["create"].enabled
     assert DINER_WRITE_GATES["edit_personal"].enabled
     assert CHIP_WRITE_GATES["assign"].enabled
+
+
+def test_payment_write_gates() -> None:
+    from jll.write_gates import PAYMENT_WRITE_GATES
+
+    assert PAYMENT_WRITE_GATES["manual_payment"].enabled
+    assert PAYMENT_WRITE_GATES["chip_deposit"].enabled
+    assert PAYMENT_WRITE_GATES["chip_deposit_refund"].enabled
+    assert PAYMENT_WRITE_GATES["cash_payment"].status is ContractStatus.BLOCKED
+    assert PAYMENT_WRITE_GATES["refund"].status is ContractStatus.BLOCKED
+    with pytest.raises(WriteContractNotProven):
+        require_proven(PAYMENT_WRITE_GATES, "cash_payment")

@@ -449,10 +449,220 @@ class DinersScreen:
         )
         self.detail.controls = [
             header,
+            self._payments_panel(diner.evidcislo),
             month_row,
             self._month_grid(day),
             self._menu_panel(day),
         ]
+        self.page.update()
+
+    def _payments_panel(self, evidcislo: int) -> ft.Control:
+        view = self.state.payments_view_state()
+        post = self.state.payments_post_state()
+        if not view.allowed:
+            return ft.Container(height=0)
+        rows: list[ft.Control] = []
+        history = self.state.payment_history_service
+        if history is not None:
+            try:
+                page = history.list_for_diner(evidcislo, limit=8, offset=0)
+                for item in page.items:
+                    amount = self.vm.format_credit(item.amount)
+                    when = item.booked_on.strftime("%d.%m.%Y")
+                    clock = (
+                        item.booked_at.strftime("%H:%M")
+                        if item.booked_at is not None
+                        else ""
+                    )
+                    label = item.payment_method_label or item.ledger_type_label
+                    sign = "+" if item.amount >= 0 else ""
+                    rows.append(
+                        ft.TextButton(
+                            f"{when}  {clock}   {sign}{amount}   {label}".strip(),
+                            style=ft.ButtonStyle(
+                                padding=ft.padding.symmetric(horizontal=0, vertical=0)
+                            ),
+                            on_click=lambda _e, pid=item.id: self._payment_detail(pid),
+                        )
+                    )
+                if not rows:
+                    rows.append(
+                        ft.Text(
+                            "Žádné platby",
+                            size=theme.role_size(theme.TextRole.BODY),
+                            color=theme.COLORS["text_secondary"],
+                        )
+                    )
+            except Exception as exc:
+                rows.append(
+                    ft.Text(
+                        str(exc),
+                        size=theme.role_size(theme.TextRole.BODY),
+                        color=theme.COLORS["danger"],
+                    )
+                )
+        return ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Text(
+                            "Platby",
+                            size=theme.role_size(theme.TextRole.ACTION),
+                            weight=ft.FontWeight.W_600,
+                        ),
+                        ft.TextButton(
+                            "Zaúčtovat platbu",
+                            disabled=not post.allowed,
+                            tooltip=disabled_hint(post) or None,
+                            on_click=lambda _e: self._open_post_payment(),
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                *rows,
+            ],
+            spacing=2,
+            tight=True,
+        )
+
+    def _payment_detail(self, penden_id: int) -> None:
+        service = self.state.payment_history_service
+        if service is None:
+            return
+        try:
+            item = service.get_detail(penden_id)
+        except Exception as exc:
+            message_dialog(self.page, title="Detail platby", body=str(exc))
+            return
+        clock = (
+            item.booked_at.strftime("%H:%M:%S") if item.booked_at is not None else "—"
+        )
+        body = "\n".join(
+            [
+                f"Datum: {item.booked_on.strftime('%d.%m.%Y')} {clock}",
+                f"Částka: {self.vm.format_credit(item.amount)}",
+                f"Období: {item.period_month}/{item.period_year}",
+                f"Typ: {item.ledger_type_label} ({item.ledger_type})",
+                f"Způsob: {item.payment_method_label or item.payment_method_code or '—'}",
+                f"Účet: {item.account or '—'}",
+                f"Služba: {item.service_type or '—'}",
+                f"Poznámka: {item.note or '—'}",
+                f"Kategorie (snapshot): {item.category_snapshot or '—'}",
+                f"Třída (snapshot): {item.class_snapshot or '—'}",
+                f"ID deníku: {item.id}",
+            ]
+        )
+        message_dialog(self.page, title="Detail platby", body=body)
+
+    def _open_post_payment(self) -> None:
+        if self._day is None:
+            return
+        state = self.state.payments_post_state()
+        if not state.allowed:
+            message_dialog(
+                self.page, title="Zaúčtovat platbu", body=disabled_hint(state) or ""
+            )
+            return
+        service = self.state.payment_service
+        if service is None:
+            return
+        try:
+            methods = service.list_payment_methods(include_cash=False)
+            accounts = service.list_accounts()
+        except Exception as exc:
+            message_dialog(self.page, title="Zaúčtovat platbu", body=str(exc))
+            return
+        if not methods or not accounts:
+            message_dialog(
+                self.page,
+                title="Zaúčtovat platbu",
+                body="Chybí číselník způsobů platby nebo účtů.",
+            )
+            return
+        amount_field = ft.TextField(label="Částka", autofocus=True)
+        note_field = ft.TextField(label="Poznámka")
+        method_dd = ft.Dropdown(
+            label="Způsob platby",
+            options=[ft.dropdown.Option(key=m.code, text=m.label) for m in methods],
+            value=next((m.code for m in methods if m.code == "4"), methods[0].code),
+        )
+        account_dd = ft.Dropdown(
+            label="Účet",
+            options=[ft.dropdown.Option(key=a.code, text=a.label) for a in accounts],
+            value=next((a.code for a in accounts if a.code == "STRAV"), accounts[0].code),
+        )
+        service_field = ft.TextField(label="Typ služby", value="Oběd-A")
+        period_dd = ft.Dropdown(
+            label="Účtovaný měsíc",
+            options=[
+                ft.dropdown.Option(key="this", text="Tento měsíc"),
+                ft.dropdown.Option(key="next", text="Budoucí měsíc"),
+            ],
+            value="this",
+        )
+
+        def _save(_e=None) -> None:
+            from decimal import Decimal, InvalidOperation
+
+            from ...payment_models import ManualPaymentCommand
+
+            raw = (amount_field.value or "").strip().replace(" ", "").replace(",", ".")
+            try:
+                amount = Decimal(raw)
+            except (InvalidOperation, ValueError):
+                message_dialog(self.page, title="Zaúčtovat platbu", body="Neplatná částka.")
+                return
+            actor, version = self._actor_bits()
+            try:
+                this_period, next_period = service.accounting_periods()
+                month = this_period[1] if period_dd.value == "this" else next_period[1]
+                service.post_manual(
+                    ManualPaymentCommand(
+                        evidcislo=self._day.diner.evidcislo,
+                        amount=amount,
+                        payment_method_code=method_dd.value or "",
+                        account=account_dd.value or "STRAV",
+                        service_type=(service_field.value or "").strip(),
+                        period_month=int(month),
+                        note=(note_field.value or "").strip(),
+                        actor=actor,
+                        client_version=version,
+                    )
+                )
+            except Exception as exc:
+                message_dialog(self.page, title="Zaúčtovat platbu", body=str(exc))
+                return
+            dialog.open = False
+            self.page.update()
+            self._open(self._day.diner.evidcislo)
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Zaúčtovat platbu"),
+            content=ft.Column(
+                [
+                    amount_field,
+                    method_dd,
+                    account_dd,
+                    service_field,
+                    period_dd,
+                    note_field,
+                ],
+                tight=True,
+                spacing=theme.SPACING["xs"],
+                height=360,
+                scroll=ft.ScrollMode.AUTO,
+            ),
+            actions=[
+                ft.TextButton(
+                    "Zrušit",
+                    on_click=lambda _e: setattr(dialog, "open", False) or self.page.update(),
+                ),
+                ft.FilledButton("Zaúčtovat", on_click=_save),
+            ],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
         self.page.update()
 
     def _month_switcher(self, day: DinerDay) -> ft.Control:

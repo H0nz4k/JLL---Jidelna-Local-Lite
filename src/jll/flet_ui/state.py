@@ -15,7 +15,7 @@ from ..identity_store import IdentityStore
 from ..policy import Permission
 from ..read_models import DinerSummary
 from ..sup_secret import SupSecretStore
-from ..write_gates import CHIP_WRITE_GATES, DINER_WRITE_GATES, WriteGate
+from ..write_gates import CHIP_WRITE_GATES, DINER_WRITE_GATES, PAYMENT_WRITE_GATES, WriteGate
 from .routes import Route
 from .theme import TextScale
 
@@ -80,6 +80,8 @@ class AppState:
     serving_service: Any = None
     diner_service: Any = None
     chip_command_service: Any = None
+    payment_history_service: Any = None
+    payment_service: Any = None
     route: Route = Route.DINERS
     text_scale: TextScale = TextScale.NORMAL
     search_query: str = ""
@@ -147,6 +149,15 @@ class AppState:
         return action_state(
             has_permission=self.has_perm(Permission.CHIPS_BLOCK),
             gate=CHIP_WRITE_GATES["unblock"],
+        )
+
+    def payments_view_state(self) -> ActionAvailability:
+        return action_state(has_permission=self.has_perm(Permission.PAYMENTS_VIEW))
+
+    def payments_post_state(self) -> ActionAvailability:
+        return action_state(
+            has_permission=self.has_perm(Permission.PAYMENTS_POST),
+            gate=PAYMENT_WRITE_GATES["manual_payment"],
         )
 
 

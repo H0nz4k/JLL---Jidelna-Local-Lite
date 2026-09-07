@@ -15,6 +15,8 @@ class Permission(StrEnum):
     CHIPS_RETURN = "chips.return"
     CHIPS_BLOCK = "chips.block"
     CHIPS_LOST = "chips.lost"
+    PAYMENTS_VIEW = "payments.view"
+    PAYMENTS_POST = "payments.post"
     ORDERS_VIEW = "orders.view"
     ORDERS_CHANGE = "orders.change"
     PICKUP_STATUS_VIEW = "pickup_status.view"

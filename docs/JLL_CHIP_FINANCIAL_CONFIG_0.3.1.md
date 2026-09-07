@@ -31,5 +31,10 @@ nefinanční DB kontrakt. Runtime dostupnost závisí na záloze.
 
 ## 0.4.0
 
-PaymentService musí atomicky spojit čip + `VyberzaCip` / `VratzaCip`
-(záloha / vratka) do jedné business operace.
+**Hotovo:** `PaymentService` atomicky spojuje čip + `VyberzaCip` / `VratzaCip`
+do jedné transakce. Viz `docs/JLL_CHIP_PAYMENT_ATOMICITY_0.4.0.md`.
+
+| Záloha | assign / return (0.4.0) |
+| --- | --- |
+| `0` | bez finance |
+| `>0` | `zapisplatbu` typ `C` + chip ve stejné transakci (`payments.post`) |

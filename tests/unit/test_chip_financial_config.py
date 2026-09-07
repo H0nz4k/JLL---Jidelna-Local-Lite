@@ -64,7 +64,7 @@ def test_config_positive_deposit_blocks_assign() -> None:
         require_zero_chip_deposit(conn, operation="assign")
     assert exc.value.code is ErrorCode.RELATION_CONFIG_INVALID
     assert "100,00" in str(exc.value)
-    assert "nebyl přidělen" in str(exc.value)
+    assert "Zaúčtovat platbu" in str(exc.value)
 
 
 def test_missing_parameter_fail_closed() -> None:

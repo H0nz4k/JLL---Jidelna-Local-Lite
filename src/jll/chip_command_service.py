@@ -7,11 +7,12 @@ from typing import Any, Mapping
 
 from psycopg.rows import dict_row
 
-from .chip_financial_config import require_zero_chip_deposit
+from .chip_financial_config import load_chip_financial_config
 from .diner_models import ChipCommand, ChipHistoryEntry
 from .lab_guard import assert_lab_identity
 from .orders.errors import ErrorCode, OrderBusinessError
 from .orders.models import OrderServiceSettings
+from .payment_service import PaymentService
 from .policy import Permission, SessionPolicy
 from .read_models import chip_status_label
 from .write_gates import CHIP_WRITE_GATES, require_proven
@@ -30,10 +31,14 @@ class ChipCommandService:
         connection_factory: ConnectionFactory,
         policy_provider: Callable[[], SessionPolicy],
         settings: OrderServiceSettings,
+        payment_service: PaymentService | None = None,
     ) -> None:
         self._connection_factory = connection_factory
         self._policy_provider = policy_provider
         self._settings = settings
+        self._payment_service = payment_service or PaymentService(
+            connection_factory, policy_provider, settings
+        )
 
     def load_history(self, evidcislo: int) -> tuple[ChipHistoryEntry, ...]:
         policy = self._policy_provider()
@@ -133,12 +138,6 @@ class ChipCommandService:
             with connection.transaction():
                 with connection.cursor(row_factory=dict_row) as cursor:
                     self._assert_lab(cursor)
-                    if deposit_gate is not None:
-                        # Před jakoukoli změnou cipy/histcipu/stravnik.cip.
-                        require_zero_chip_deposit(
-                            connection,
-                            operation=deposit_gate,
-                        )
                     owner = self._lock_owner(cursor, command.evidcislo)
                     policy = self._policy_provider()
                     if str(owner["kategorie"]) not in policy.scope():
@@ -146,6 +145,26 @@ class ChipCommandService:
                             ErrorCode.OUT_OF_SCOPE_OR_INACTIVE,
                             "Strávník je mimo povolený scope.",
                         )
+                    if deposit_gate is not None:
+                        config = load_chip_financial_config(connection)
+                        if config.requires_payment:
+                            policy.require(Permission.PAYMENTS_POST)
+                            if deposit_gate == "assign":
+                                self._payment_service.post_chip_deposit_on_cursor(
+                                    cursor,
+                                    diner=owner,
+                                    amount=config.first_chip_deposit,
+                                    actor=command.actor,
+                                    client_version=command.client_version,
+                                )
+                            else:
+                                self._payment_service.post_chip_deposit_refund_on_cursor(
+                                    cursor,
+                                    diner=owner,
+                                    amount=config.first_chip_deposit,
+                                    actor=command.actor,
+                                    client_version=command.client_version,
+                                )
                     handler(cursor, code, command, owner)
                     ok = self._insert_audit(
                         cursor,
@@ -333,7 +352,10 @@ class ChipCommandService:
     def _lock_owner(self, cursor: Any, evidcislo: int) -> Mapping[str, Any]:
         cursor.execute(
             """
-            SELECT evidcislo, btrim(kategorie) AS kategorie,
+            SELECT evidcislo,
+                   btrim(jmeno) AS jmeno,
+                   btrim(kategorie) AS kategorie,
+                   COALESCE(btrim(trida), '') AS trida,
                    NULLIF(btrim(cip), '') AS cip,
                    stav, COALESCE(deleted, false) AS deleted
             FROM public.stravnik

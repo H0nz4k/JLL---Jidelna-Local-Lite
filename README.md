@@ -37,12 +37,12 @@ deadline, exkluzivitu variant a audit.
 
 ## Aktuální stav
 
-Verze `0.3.1` (Flet desktop UX). Aplikace se spouští pouze proti lokální
+Verze `0.4.0` (Flet desktop UX). Aplikace se spouští pouze proti lokální
 testovací databázi, jejíž identitu ověřuje LAB guard. Cílové UI je Flet;
 PySide6 zůstává referenční. Backend, identity, oprávnění, objednávkový
-write, create/edit strávníka a chip lifecycle (včetně deposit=0 return)
-jsou implementované; záloha za čip > 0 Kč a category change zůstávají
-fail-closed do PaymentService 0.4.0.
+write, create/edit strávníka, chip lifecycle (včetně atomické zálohy/vratky)
+a historie/zaúčtování plateb jsou implementované; hotovost/EET, refund
+a homebanking vazba zůstávají fail-closed. Category change zůstává PARTIAL.
 
 ## Hlavní funkce
 
@@ -73,15 +73,24 @@ fail-closed do PaymentService 0.4.0.
 ### Čipy
 
 - Read-only Detail čipu přes `chips.view` (nezávisle na assign gate).
-- Write: přidělit / vrátit (jen záloha 0 Kč) / blokovat / odblokovat /
-  ztracený (PROVEN); převod a záloha > 0 Kč fail-closed do 0.4.0.
+- Write: přidělit / vrátit / blokovat / odblokovat / ztracený (PROVEN).
+- Záloha `CenaZaPrvniCip=0` bez finance; `>0` atomicky s `zapisplatbu` typ `C`
+  (vyžaduje `payments.post`). Převod a hotovostní doklad zůstávají BLOCKED.
 - `ChipReader` abstrakce s fake i sériovým adapterem a explicitním portem.
 - Ve Flet UI čtečka poslouchá na pozadí: přiložení čipu otevře kartu
   vlastníka. Pokud je port v nastavení, ale zařízení není připojené,
   search pole ukáže světle červené `čtečka nepřipojena`.
 - Administrace → Čtečka: COM port z OS enumerace, baudrate, ukončení řádku
   a test čtečky. Uložení vyžaduje `admin.reader` i SUP reauth.
-- Čipové zápisy jsou fail-closed.
+
+### Platby
+
+- Historie `penden` typ `P`+`C` na kartě strávníka (`payments.view`).
+- Ruční zaúčtování přes `public.zapisplatbu` (`payments.post`), jedna služba,
+  bez hotovosti/EET a bez automatického priority splitu.
+- Kontrakty: `docs/JLL_PAYMENT_CONTRACT_0.4.0.md`,
+  `docs/JLL_PAYMENT_HISTORY_0.4.0.md`,
+  `docs/JLL_CHIP_PAYMENT_ATOMICITY_0.4.0.md`.
 
 ### Stav výdeje
 

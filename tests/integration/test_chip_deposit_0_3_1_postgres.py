@@ -127,12 +127,31 @@ def test_assign_pass_when_deposit_zero(lab_database: LabDatabase) -> None:
             connection.commit()
 
 
-def test_assign_blocked_before_write_when_deposit_positive(
+def test_assign_deposit_positive_requires_payments_post(
     lab_database: LabDatabase,
 ) -> None:
-    diner = _diner(lab_database).create(
+    """Bez payments.post zůstává deposit>0 fail-closed před chip write."""
+
+    def limited_policy() -> SessionPolicy:
+        return SessionPolicy(
+            user_identity="LAB",
+            allowed_categories=frozenset({CATEGORY}),
+            permissions=frozenset(
+                {
+                    Permission.DINERS_VIEW,
+                    Permission.DINERS_CREATE,
+                    Permission.CHIPS_ASSIGN,
+                    Permission.CHIPS_VIEW,
+                }
+            ),
+            bypass_order_deadlines=True,
+        )
+
+    diner = DinerService(
+        lab_database.connect, _policy, _settings(lab_database)
+    ).create(
         CreateDinerCommand(
-            jmeno="JLLTEST DEP+ ASSIGN",
+            jmeno="JLLTEST DEP+ NOPAY",
             kategorie=CATEGORY,
             actor=ACTOR,
             client_version=VERSION,
@@ -154,9 +173,12 @@ def test_assign_blocked_before_write_when_deposit_positive(
         ).fetchone()[0]
         _set_deposit(connection, "100")
         connection.commit()
+    chip = ChipCommandService(
+        lab_database.connect, limited_policy, _settings(lab_database)
+    )
     try:
         with pytest.raises(OrderBusinessError) as exc:
-            _chip(lab_database).assign(
+            chip.assign(
                 ChipCommand(
                     chip_code=chip_code,
                     evidcislo=diner.evidcislo,
@@ -164,8 +186,7 @@ def test_assign_blocked_before_write_when_deposit_positive(
                     client_version=VERSION,
                 )
             )
-        assert exc.value.code is ErrorCode.RELATION_CONFIG_INVALID
-        assert "100,00" in str(exc.value)
+        assert exc.value.code is ErrorCode.OUT_OF_SCOPE_OR_INACTIVE
         with lab_database.connect() as connection:
             after = connection.execute(
                 "SELECT stav, stravnik FROM public.cipy WHERE cislo=%s",
@@ -179,9 +200,14 @@ def test_assign_blocked_before_write_when_deposit_positive(
                 "SELECT COALESCE(btrim(cip),'') FROM public.stravnik WHERE evidcislo=%s",
                 (diner.evidcislo,),
             ).fetchone()[0]
+            penden = connection.execute(
+                "SELECT count(*) FROM public.penden WHERE evidcislo=%s AND typ='C'",
+                (diner.evidcislo,),
+            ).fetchone()[0]
         assert after == before
         assert hist_after == hist_before
         assert str(owner) == ""
+        assert int(penden) == 0
     finally:
         with lab_database.connect() as connection:
             _set_deposit(connection, "0")
@@ -276,12 +302,12 @@ def test_return_zero_deposit_happy_path(lab_database: LabDatabase) -> None:
         _cleanup(lab_database, diner.evidcislo, chip_code)
 
 
-def test_return_positive_deposit_blocked_without_mutation(
+def test_return_deposit_positive_requires_payments_post(
     lab_database: LabDatabase,
 ) -> None:
     diner = _diner(lab_database).create(
         CreateDinerCommand(
-            jmeno="JLLTEST RET+",
+            jmeno="JLLTEST RET+ NOPAY",
             kategorie=CATEGORY,
             actor=ACTOR,
             client_version=VERSION,
@@ -295,9 +321,9 @@ def test_return_positive_deposit_blocked_without_mutation(
         )
         _set_deposit(connection, "0")
         connection.commit()
-    chip = _chip(lab_database)
+    chip_full = _chip(lab_database)
     try:
-        chip.assign(
+        chip_full.assign(
             ChipCommand(
                 chip_code=chip_code,
                 evidcislo=diner.evidcislo,
@@ -312,8 +338,25 @@ def test_return_positive_deposit_blocked_without_mutation(
             ).fetchone()
             _set_deposit(connection, "75")
             connection.commit()
+
+        def limited_policy() -> SessionPolicy:
+            return SessionPolicy(
+                user_identity="LAB",
+                allowed_categories=frozenset({CATEGORY}),
+                permissions=frozenset(
+                    {
+                        Permission.CHIPS_RETURN,
+                        Permission.CHIPS_VIEW,
+                    }
+                ),
+                bypass_order_deadlines=True,
+            )
+
+        chip_limited = ChipCommandService(
+            lab_database.connect, limited_policy, _settings(lab_database)
+        )
         with pytest.raises(OrderBusinessError) as exc:
-            chip.return_chip(
+            chip_limited.return_chip(
                 ChipCommand(
                     chip_code=chip_code,
                     evidcislo=diner.evidcislo,
@@ -321,7 +364,7 @@ def test_return_positive_deposit_blocked_without_mutation(
                     client_version=VERSION,
                 )
             )
-        assert "75,00" in str(exc.value)
+        assert exc.value.code is ErrorCode.OUT_OF_SCOPE_OR_INACTIVE
         with lab_database.connect() as connection:
             after = connection.execute(
                 "SELECT stav, stravnik FROM public.cipy WHERE cislo=%s",

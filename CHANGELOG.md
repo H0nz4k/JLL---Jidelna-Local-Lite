@@ -6,6 +6,29 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.4.0] – 2026-09-07
+
+Platby + peněžní deník + atomická záloha/vratka za čip:
+
+- historie plateb (`penden` typ `P`+`C`) na kartě strávníka;
+- detail platby ze snapshotu deníku;
+- oprávnění `payments.view` / `payments.post`;
+- ruční zaúčtování přes `public.zapisplatbu` (jedna služba, bez hotovosti);
+- atomický chip assign/return při `CenaZaPrvniCip > 0`;
+- hotovost / refund / homebanking vazba zůstávají BLOCKED.
+
+### Added
+
+- `PaymentHistoryService`, `PaymentService`, Flet sekce Platby.
+- `docs/JLL_PAYMENT_CONTRACT_0.4.0.md`,
+  `docs/JLL_PAYMENT_HISTORY_0.4.0.md`,
+  `docs/JLL_CHIP_PAYMENT_ATOMICITY_0.4.0.md`.
+
+### Changed
+
+- Canonical verze `0.4.0`.
+- Chip deposit>0 už není fail-closed (vyžaduje `payments.post`).
+
 ## [0.3.1] – 2026-09-07
 
 Chip deposit safety hardening:
