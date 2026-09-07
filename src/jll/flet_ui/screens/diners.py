@@ -301,6 +301,7 @@ class DinersScreen:
         chip_view = self.state.chip_view_state()
         create = self.state.diner_create_state()
         assign = self.state.chip_assign_state()
+        ret = self.state.chip_return_state()
         block = self.state.chip_block_state()
         lost = self.state.chip_lost_state()
         unblock = self.state.chip_unblock_state()
@@ -389,6 +390,12 @@ class DinersScreen:
                     disabled=not assign.allowed,
                     tooltip=disabled_hint(assign) or None,
                     on_click=lambda _e: self._chip_assign(),
+                ),
+                ft.TextButton(
+                    "Vrátit",
+                    disabled=not ret.allowed,
+                    tooltip=disabled_hint(ret) or None,
+                    on_click=lambda _e: self._chip_return(),
                 ),
                 ft.TextButton(
                     "Blokovat",
@@ -1167,6 +1174,9 @@ class DinersScreen:
 
     def _chip_block(self) -> None:
         self._chip_op("Blokovat čip", self.state.chip_block_state, "block")
+
+    def _chip_return(self) -> None:
+        self._chip_op("Vrátit čip", self.state.chip_return_state, "return_chip")
 
     def _chip_unblock(self) -> None:
         self._chip_op("Odblokovat čip", self.state.chip_unblock_state, "unblock")

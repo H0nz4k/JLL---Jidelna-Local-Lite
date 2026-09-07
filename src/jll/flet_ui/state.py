@@ -125,6 +125,12 @@ class AppState:
             has_permission=self.has_perm(Permission.CHIPS_VIEW),
         )
 
+    def chip_return_state(self) -> ActionAvailability:
+        return action_state(
+            has_permission=self.has_perm(Permission.CHIPS_RETURN),
+            gate=CHIP_WRITE_GATES["return"],
+        )
+
     def chip_block_state(self) -> ActionAvailability:
         return action_state(
             has_permission=self.has_perm(Permission.CHIPS_BLOCK),

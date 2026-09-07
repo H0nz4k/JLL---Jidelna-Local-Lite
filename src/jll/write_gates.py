@@ -45,16 +45,15 @@ class WriteGate:
 CHIP_WRITE_GATES: dict[str, WriteGate] = {
     "assign": WriteGate(
         ContractStatus.PROVEN,
-        "Data.pas NajdiCip(P): INSERT/UPDATE cipy P + histcipu + stravnik.cip; "
-        "odmítá P/B; Z jen s allow_reassign_lost. Finance VyberzaCip (INI "
-        "CenaZaPrvniCip) — DB path odpovídá CenaZaPrvniCip=0; "
-        "nenulová záloha je mimo tuto misi (platby).",
+        "Data.pas NajdiCip(P): INSERT/UPDATE cipy P + histcipu + stravnik.cip. "
+        "Runtime: CenaZaPrvniCip z public.parametry BACKUP; deposit>0 fail-closed "
+        "před chip write (PaymentService 0.4.0).",
         "Přidělit čip",
     ),
     "return": WriteGate(
-        ContractStatus.BLOCKED,
-        "NajdiCip(V) je doložen, ale legacy volá VratzaCip (finanční vratka). "
-        "Bez PaymentService 0.4.0 zůstává return fail-closed.",
+        ContractStatus.PROVEN,
+        "NajdiCip(V) nefinanční větev: P→V, stravnik=0, clear cip, histcipu V. "
+        "Runtime: jen při CenaZaPrvniCip=0; deposit>0 fail-closed do 0.4.0.",
         "Vrátit čip",
     ),
     "block": WriteGate(

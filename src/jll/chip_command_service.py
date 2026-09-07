@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date
 from typing import Any, Mapping
 
 from psycopg.rows import dict_row
 
+from .chip_financial_config import require_zero_chip_deposit
 from .diner_models import ChipCommand, ChipHistoryEntry
 from .lab_guard import assert_lab_identity
 from .orders.errors import ErrorCode, OrderBusinessError
@@ -89,7 +89,13 @@ class ChipCommandService:
         require_proven(CHIP_WRITE_GATES, "assign")
         policy = self._policy_provider()
         policy.require(Permission.CHIPS_ASSIGN)
-        self._run_write(command, self._assign_tx)
+        self._run_write(command, self._assign_tx, deposit_gate="assign")
+
+    def return_chip(self, command: ChipCommand) -> None:
+        require_proven(CHIP_WRITE_GATES, "return")
+        policy = self._policy_provider()
+        policy.require(Permission.CHIPS_RETURN)
+        self._run_write(command, self._return_tx, deposit_gate="return")
 
     def block(self, command: ChipCommand) -> None:
         require_proven(CHIP_WRITE_GATES, "block")
@@ -110,7 +116,13 @@ class ChipCommandService:
         policy.require(Permission.CHIPS_BLOCK)
         self._run_write(command, self._unblock_tx)
 
-    def _run_write(self, command: ChipCommand, handler: Callable) -> None:
+    def _run_write(
+        self,
+        command: ChipCommand,
+        handler: Callable,
+        *,
+        deposit_gate: str | None = None,
+    ) -> None:
         code = self._normalize_chip(command.chip_code)
         if not command.actor or not command.client_version:
             raise OrderBusinessError(
@@ -121,6 +133,12 @@ class ChipCommandService:
             with connection.transaction():
                 with connection.cursor(row_factory=dict_row) as cursor:
                     self._assert_lab(cursor)
+                    if deposit_gate is not None:
+                        # Před jakoukoli změnou cipy/histcipu/stravnik.cip.
+                        require_zero_chip_deposit(
+                            connection,
+                            operation=deposit_gate,
+                        )
                     owner = self._lock_owner(cursor, command.evidcislo)
                     policy = self._policy_provider()
                     if str(owner["kategorie"]) not in policy.scope():
@@ -206,6 +224,54 @@ class ChipCommandService:
         cursor.execute(
             "UPDATE public.stravnik SET cip = %s WHERE evidcislo = %s",
             (code, command.evidcislo),
+        )
+
+    def _return_tx(
+        self,
+        cursor: Any,
+        code: str,
+        command: ChipCommand,
+        owner: Mapping[str, Any],
+    ) -> None:
+        """NajdiCip(V) nefinanční větev (CenaZaPrvniCip=0)."""
+
+        owner_chip = (owner.get("cip") or "").strip()
+        if not owner_chip:
+            raise OrderBusinessError(
+                ErrorCode.ORDER_STATE_CONFLICT,
+                "Strávník nemá čip.",
+            )
+        if owner_chip != code:
+            raise OrderBusinessError(
+                ErrorCode.OUT_OF_SCOPE_OR_INACTIVE,
+                "Čip nepatří vybranému strávníkovi.",
+            )
+        chip = self._lock_owned_chip(cursor, code, command.evidcislo, owner)
+        stav = str(chip["stav"] or "")
+        if stav == CHIP_BLOCKED:
+            raise OrderBusinessError(
+                ErrorCode.ORDER_STATE_CONFLICT,
+                "Čip je blokován! Nejdříve jej odblokujte.",
+            )
+        if stav != CHIP_ASSIGNED:
+            raise OrderBusinessError(
+                ErrorCode.ORDER_STATE_CONFLICT,
+                "Vrátit lze pouze přidělený čip.",
+            )
+        cursor.execute(
+            """
+            UPDATE public.cipy
+            SET vydano = CURRENT_DATE,
+                stav = %s,
+                stravnik = 0
+            WHERE cislo = %s
+            """,
+            (CHIP_FREE, code),
+        )
+        self._insert_hist(cursor, code, CHIP_FREE, command.evidcislo)
+        cursor.execute(
+            "UPDATE public.stravnik SET cip = '' WHERE evidcislo = %s",
+            (command.evidcislo,),
         )
 
     def _block_tx(
@@ -335,11 +401,12 @@ class ChipCommandService:
         client_version: str,
         evidcislo: int,
     ) -> bool:
-        today = date.today().strftime("%d%m%Y")
         cursor.execute(
             """
             SELECT public.insert_udalost(
-                %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s,
+                to_char(CURRENT_DATE, 'DDMMYYYY'),
+                %s, %s
             ) AS result
             """,
             (
@@ -349,7 +416,6 @@ class ChipCommandService:
                 note[:50],
                 client_version[:10],
                 evidcislo,
-                today,
                 None,
                 None,
             ),
