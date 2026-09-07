@@ -11,27 +11,20 @@ from jll.write_gates import (
 )
 
 
-def test_phase_3a_chip_write_gates_are_fail_closed() -> None:
-    assert CHIP_WRITE_GATES["assign"].status is ContractStatus.PARTIAL
-    assert {
-        operation
-        for operation, gate in CHIP_WRITE_GATES.items()
-        if gate.status is ContractStatus.BLOCKED
-    } == {"return", "block", "lost", "unblock", "transfer"}
-    assert not any(gate.enabled for gate in CHIP_WRITE_GATES.values())
-
-
-def test_phase_3a_diner_write_gates_are_fail_closed() -> None:
-    assert DINER_WRITE_GATES["create"].status is ContractStatus.PARTIAL
-    assert DINER_WRITE_GATES["edit_personal"].status is ContractStatus.BLOCKED
-    assert DINER_WRITE_GATES["category_change"].status is ContractStatus.PARTIAL
-    assert not any(gate.enabled for gate in DINER_WRITE_GATES.values())
-
-
-def test_non_proven_gate_cannot_be_used_as_write_authorization() -> None:
+def test_chip_write_gates_fail_closed_for_unproven() -> None:
+    assert CHIP_WRITE_GATES["return"].status is ContractStatus.BLOCKED
+    assert CHIP_WRITE_GATES["transfer"].status is ContractStatus.BLOCKED
     with pytest.raises(WriteContractNotProven, match="bezpečnostně blokována"):
-        require_proven(CHIP_WRITE_GATES, "assign")
-    with pytest.raises(WriteContractNotProven, match="Upravit strávníka"):
-        require_proven(DINER_WRITE_GATES, "edit_personal")
-    assert CHIP_WRITE_GATES["assign"].status is ContractStatus.PARTIAL
-    assert DINER_WRITE_GATES["edit_personal"].status is ContractStatus.BLOCKED
+        require_proven(CHIP_WRITE_GATES, "return")
+
+
+def test_diner_category_change_remains_partial() -> None:
+    assert DINER_WRITE_GATES["category_change"].status is ContractStatus.PARTIAL
+    with pytest.raises(WriteContractNotProven):
+        require_proven(DINER_WRITE_GATES, "category_change")
+
+
+def test_proven_gates_are_enabled() -> None:
+    assert DINER_WRITE_GATES["create"].enabled
+    assert DINER_WRITE_GATES["edit_personal"].enabled
+    assert CHIP_WRITE_GATES["assign"].enabled

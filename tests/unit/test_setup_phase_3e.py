@@ -198,10 +198,13 @@ def test_setup_builds_config_from_station_and_subject(tmp_path: Path, qtbot: Any
 
 
 def test_write_gate_tooltip_is_user_facing() -> None:
-    gate = DINER_WRITE_GATES["edit_personal"]
-    assert "bezpečnostně blokována" in gate.tooltip
-    assert "diners.edit" not in gate.tooltip
-    assert gate.badge == "Dosud nepovoleno"
+    blocked = DINER_WRITE_GATES["category_change"]
+    assert "bezpečnostně blokována" in blocked.tooltip
+    assert "diners.edit" not in blocked.tooltip
+    assert blocked.badge == "Dosud nepovoleno"
+    proven = DINER_WRITE_GATES["edit_personal"]
+    assert proven.enabled
+    assert proven.badge is None
 
 
 def test_unexpected_setup_error_is_not_raw_python(

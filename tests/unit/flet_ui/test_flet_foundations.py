@@ -79,7 +79,10 @@ def test_permission_labels_are_czech() -> None:
 def test_permission_vs_write_gate_state() -> None:
     no_perm = action_state(has_permission=False, gate=DINER_WRITE_GATES["create"])
     assert no_perm.reason is ActionBlockReason.NO_PERMISSION
-    gated = action_state(has_permission=True, gate=DINER_WRITE_GATES["create"])
+    allowed = action_state(has_permission=True, gate=DINER_WRITE_GATES["create"])
+    assert allowed.reason is ActionBlockReason.ALLOWED
+    assert allowed.allowed
+    gated = action_state(has_permission=True, gate=DINER_WRITE_GATES["category_change"])
     assert gated.reason is ActionBlockReason.WRITE_GATE
     assert not gated.allowed
 

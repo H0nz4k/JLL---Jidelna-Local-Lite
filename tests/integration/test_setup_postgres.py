@@ -82,6 +82,7 @@ def test_setup_wizard_persists_verified_lab_and_hashed_admin(
     qtbot.waitUntil(lambda: window.results.rowCount() > 0, timeout=5_000)
     assert "Integration Admin" in window.user_label.text()
     assert window.admin_button.isEnabled()
-    assert "bezpečnostně blokována" in window.edit_diner_button.toolTip()
+    assert "bezpečnostně blokována" not in window.edit_diner_button.toolTip()
+    assert "dostupná" in window.edit_diner_button.toolTip()
     window.close()
     window.connection_pool.close()

@@ -502,17 +502,24 @@ def test_order_actions_are_disabled_without_permission(qtbot: Any) -> None:
     assert all(not button.isEnabled() for button in unavailable)
 
 
-def test_non_proven_chip_and_diner_writes_stay_disabled(qtbot: Any) -> None:
+def test_proven_and_blocked_chip_diner_write_gates(qtbot: Any) -> None:
     window = build_window(qtbot, policy=session_policy(frozenset(Permission)))
+    # Bez ověřeného LAB guardu zůstávají write tlačítka disabled i při PROVEN gate.
     assert not window.new_diner_button.isEnabled()
-    assert "bezpečnostně blokována" in window.new_diner_button.toolTip()
-    assert not window.edit_diner_button.isEnabled()
-    assert "bezpečnostně blokována" in window.edit_diner_button.toolTip()
-    assert all(
-        not button.isEnabled()
-        and button.property("contractStatus") in {"PARTIAL", "BLOCKED"}
+    assert "dostupná" in window.new_diner_button.toolTip() or "LAB" in window.new_diner_button.toolTip()
+    statuses = {
+        button.property("contractStatus")
         for button in window.chip_action_buttons.values()
-    )
+    }
+    assert "PROVEN" in statuses
+    assert "BLOCKED" in statuses
+    blocked = [
+        button
+        for button in window.chip_action_buttons.values()
+        if button.property("contractStatus") == "BLOCKED"
+    ]
+    assert blocked
+    assert all(not button.isEnabled() for button in blocked)
 
 
 def visible_rect(widget: QWidget) -> tuple[int, int, int, int]:

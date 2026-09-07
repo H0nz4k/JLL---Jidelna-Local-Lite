@@ -169,7 +169,7 @@ def test_failed_load_never_shows_partial_identity(qtbot: Any) -> None:
 
 
 @pytest.mark.parametrize("gate_key", ["edit_personal", "create"])
-def test_form_preview_cannot_save(qtbot: Any, gate_key: str) -> None:
+def test_form_save_follows_write_gate(qtbot: Any, gate_key: str) -> None:
     gate = DINER_WRITE_GATES[gate_key]
     dialog = DinerFormDialog(
         gate,
@@ -178,10 +178,9 @@ def test_form_preview_cannot_save(qtbot: Any, gate_key: str) -> None:
     )
     qtbot.addWidget(dialog)
 
-    assert not gate.enabled
-    assert not dialog.save_button.isEnabled()
+    assert gate.enabled
+    assert dialog.save_button.isEnabled()
     assert dialog.save_button.toolTip() == gate.tooltip
-    assert all(field.isReadOnly() for field in dialog.fields.values())
 
 
 def test_edit_preview_shows_current_values(qtbot: Any) -> None:
@@ -208,4 +207,4 @@ def test_create_preview_starts_empty_and_explains_evidcislo(
     assert all(not field.text() for field in dialog.fields.values())
     texts = [label.text() for label in dialog.findChildren(QLabel)]
     assert any("evidenční číslo" in text.casefold() for text in texts)
-    assert any(SAVE_BLOCKED_TEXT in text for text in texts)
+    assert any("pridel_cislo_stravnika" in text for text in texts)

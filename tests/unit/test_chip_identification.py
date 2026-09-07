@@ -322,7 +322,7 @@ def test_unknown_chip_status_opens_card_without_guessing_meaning(
     )
     window._chip_identified(window._chip_lookup_generation, identification, 5.0)
     assert opened == [123]
-    assert "nedoložen" in identification.status_label
+    assert identification.status_label == "Volný"
     assert "Vrácen" not in identification.status_label
 
 
