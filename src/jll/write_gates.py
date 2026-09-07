@@ -44,33 +44,38 @@ class WriteGate:
 
 CHIP_WRITE_GATES: dict[str, WriteGate] = {
     "assign": WriteGate(
-        ContractStatus.PARTIAL,
-        "Chybí autoritativní historie, audit a mixed-writer pravidla.",
+        ContractStatus.PROVEN,
+        "Data.pas NajdiCip(P): INSERT/UPDATE cipy P + histcipu + stravnik.cip; "
+        "odmítá P/B; Z jen s allow_reassign_lost. Finance VyberzaCip (INI "
+        "CenaZaPrvniCip) — DB path odpovídá CenaZaPrvniCip=0; "
+        "nenulová záloha je mimo tuto misi (platby).",
         "Přidělit čip",
     ),
     "return": WriteGate(
         ContractStatus.BLOCKED,
-        "Cílový stav, odvázání a historizace nejsou doloženy.",
+        "NajdiCip(V) je doložen, ale legacy volá VratzaCip (finanční vratka). "
+        "Bez PaymentService 0.4.0 zůstává return fail-closed.",
         "Vrátit čip",
     ),
     "block": WriteGate(
-        ContractStatus.BLOCKED,
-        "Write přechod do B a jeho audit nejsou doloženy.",
+        ContractStatus.PROVEN,
+        "stravnik.pas BitBtn13 / NajdiCip(B): cipy.stav=B + histcipu B, "
+        "vlastník zůstává; jen z P.",
         "Blokovat čip",
     ),
     "lost": WriteGate(
-        ContractStatus.BLOCKED,
-        "Write přechod do Z a jeho audit nejsou doloženy.",
+        ContractStatus.PROVEN,
+        "stravnik.pas BitBtn14: cipy.stav=Z + histcipu Z + clear stravnik.cip.",
         "Označit čip jako ztracený",
     ),
     "unblock": WriteGate(
-        ContractStatus.BLOCKED,
-        "Reaktivace B/Z do P není autoritativně doložena.",
+        ContractStatus.PROVEN,
+        "NajdiCip(B) když už B a owner match → stav P + histcipu P.",
         "Odblokovat čip",
     ),
     "transfer": WriteGate(
         ContractStatus.BLOCKED,
-        "Helper přepisuje vlastníka v konfliktu s neznámou historií a auditem.",
+        "Legacy nemá samostatný transfer; tiché převedení vlastníka zakázáno.",
         "Převést čip",
     ),
 }
@@ -78,18 +83,23 @@ CHIP_WRITE_GATES: dict[str, WriteGate] = {
 
 DINER_WRITE_GATES: dict[str, WriteGate] = {
     "create": WriteGate(
-        ContractStatus.PARTIAL,
-        "Chybí bezpečný allocator a jednoznačný kontrakt návazných řádků.",
+        ContractStatus.PROVEN,
+        "pridel_cislo_stravnika + insert stravnik (AfterInsert defaults) + "
+        "doplnobvyklestravnikakategor AM/BM + podmíněný nastavprihlasdleobvykle + "
+        "insert_udalost. Gate platí pro JLL-only LAB režim.",
         "Přidat strávníka",
     ),
     "edit_personal": WriteGate(
-        ContractStatus.BLOCKED,
-        "Chybí autoritativní whitelist polí a auditní kontrakt.",
+        ContractStatus.PROVEN,
+        "Explicitní whitelist (jmeno/trida/adresa/kontakt/poznámky); "
+        "FOR UPDATE + expected updated_dt; audit insert_udalost; "
+        "kategorie/finance/čip/stav zakázány.",
         "Upravit strávníka",
     ),
     "category_change": WriteGate(
         ContractStatus.PARTIAL,
-        "Chybí úplná orchestrace měsíčních přihlášek a návratových stavů.",
+        "DB doplnobvyklestravnikakategor doložena, ale AM/BM dialogy a "
+        "prihlas/penden orchestrace z DBEdit3Exit nejsou kompletně portované.",
         "Změnit kategorii strávníka",
     ),
 }

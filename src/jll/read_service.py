@@ -38,6 +38,7 @@ from .read_models import (
     LabDiagnostics,
     MealDay,
     MenuCapability,
+    chip_status_label,
     MenuOption,
     NamedOrderRow,
     NormMenuSummary,
@@ -589,7 +590,7 @@ class OrderReadService:
             code=str(row["code"]),
             exists=True,
             status_code=status_code,
-            status_label=_chip_status_label(status_code),
+            status_label=chip_status_label(status_code),
             owner=owner,
             owner_restricted=owner is None and bool(row["has_owner_reference"]),
         )
@@ -1050,7 +1051,18 @@ class OrderReadService:
                    btrim(kategorie) AS category,
                    COALESCE(btrim(trida), '') AS class_name,
                    NULLIF(btrim(cip), '') AS chip_number,
-                   hromadny, preplatekmm, platittm, platitpm, platbatm, platbabm
+                   hromadny, preplatekmm, platittm, platitpm, platbatm, platbabm,
+                   updated_dt,
+                   COALESCE(btrim(ulice), '') AS ulice,
+                   COALESCE(btrim(psc), '') AS psc,
+                   COALESCE(btrim(mesto), '') AS mesto,
+                   COALESCE(btrim(poznamka), '') AS poznamka,
+                   COALESCE(btrim(poznamkaam), '') AS poznamkaam,
+                   COALESCE(btrim(poznamkabm), '') AS poznamkabm,
+                   COALESCE(btrim(email), '') AS email,
+                   COALESCE(btrim(vzkaz), '') AS vzkaz,
+                   COALESCE(btrim(stredisko), '') AS stredisko,
+                   datumnarozeni
             FROM public.stravnik
             WHERE evidcislo = %s
               AND kategorie = ANY(%s::varchar[])
@@ -1092,6 +1104,17 @@ class OrderReadService:
                 else None
             ),
             chips=chips,
+            updated_dt=row["updated_dt"],
+            ulice=str(row["ulice"]),
+            psc=str(row["psc"]),
+            mesto=str(row["mesto"]),
+            poznamka=str(row["poznamka"]),
+            email=str(row["email"]),
+            stredisko=str(row["stredisko"]),
+            vzkaz=str(row["vzkaz"]),
+            poznamkaam=str(row["poznamkaam"]),
+            poznamkabm=str(row["poznamkabm"]),
+            datumnarozeni=row["datumnarozeni"],
         )
 
     def _load_chips(
@@ -1126,7 +1149,7 @@ class OrderReadService:
                     if chip["status_code"] is not None
                     else None
                 ),
-                status_label=_chip_status_label(chip["status_code"]),
+                status_label=chip_status_label(chip["status_code"]),
             )
             for chip in chip_rows
         )
@@ -1547,14 +1570,5 @@ class OrderReadService:
         return ActionAvailability(action, True)
 
 
-def _chip_status_label(value: object) -> str:
-    code = str(value).strip() if value is not None else ""
-    if code == "P":
-        return "Přidělen"
-    if code == "Z":
-        return "Ztracen"
-    if code == "B":
-        return "Blokován"
-    if not code:
-        return "Stav neuveden"
-    return f"Stav {code} (význam nedoložen)"
+# Zpětná kompatibilita.
+_chip_status_label = chip_status_label

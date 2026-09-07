@@ -28,6 +28,17 @@ class DinerDetail(DinerSummary):
     available_credit: Decimal
     chip_number: str | None = None
     chips: tuple[DinerChip, ...] = ()
+    updated_dt: datetime | None = None
+    ulice: str = ""
+    psc: str = ""
+    mesto: str = ""
+    poznamka: str = ""
+    email: str = ""
+    stredisko: str = ""
+    vzkaz: str = ""
+    poznamkaam: str = ""
+    poznamkabm: str = ""
+    datumnarozeni: date | None = None
 
 
 CHIP_NOT_FOUND = "Čip nebyl nalezen."
@@ -363,3 +374,18 @@ class DailyReport:
     @property
     def total_orders(self) -> int:
         return len(self.diners)
+
+
+def chip_status_label(value: object) -> str:
+    code = str(value).strip() if value is not None else ""
+    if code == "P":
+        return "Přidělen"
+    if code == "V":
+        return "Volný"
+    if code == "Z":
+        return "Ztracen"
+    if code == "B":
+        return "Blokován"
+    if not code:
+        return "Stav neuveden"
+    return f"Stav {code} (význam nedoložen)"
