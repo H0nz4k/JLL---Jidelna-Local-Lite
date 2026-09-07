@@ -21,6 +21,10 @@ SECTIONS = (
     "Vzhled",
 )
 
+_USERS_NAME_W = 280
+_USERS_STATUS_W = 90
+_USERS_PROFILE_W = 140
+
 
 class AdminScreen:
     def __init__(self, page: ft.Page, state: AppState, *, on_text_scale) -> None:
@@ -31,20 +35,7 @@ class AdminScreen:
         self.section = "Uživatelé"
         self.body = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=6, tight=False)
         self.nav = ft.Column(spacing=0, tight=True)
-        for name in SECTIONS:
-            self.nav.controls.append(
-                ft.Container(
-                    content=ft.Text(
-                        name,
-                        size=theme.role_size(theme.TextRole.ACTION),
-                        color=theme.COLORS["accent"],
-                    ),
-                    padding=ft.padding.symmetric(horizontal=8, vertical=4),
-                    border_radius=4,
-                    ink=True,
-                    on_click=lambda _e, n=name: self._open_section(n),
-                )
-            )
+        self._rebuild_nav()
         self.root = ft.Column(
             [
                 ft.Text(
@@ -67,12 +58,8 @@ class AdminScreen:
                         ft.Container(
                             content=self.body,
                             expand=True,
-                            bgcolor=theme.COLORS["surface"],
-                            padding=theme.SPACING["md"],
-                            border=ft.border.all(
-                                theme.BLOCK_BORDER_WIDTH, theme.COLORS["block_border"]
-                            ),
-                            border_radius=8,
+                            alignment=ft.alignment.top_left,
+                            bgcolor=theme.COLORS["background"],
                         ),
                     ],
                     expand=True,
@@ -89,8 +76,45 @@ class AdminScreen:
     def control(self) -> ft.Control:
         return self.root
 
+    def _rebuild_nav(self) -> None:
+        self.nav.controls.clear()
+        for name in SECTIONS:
+            active = name == self.section
+            self.nav.controls.append(
+                ft.Container(
+                    content=ft.Text(
+                        name,
+                        size=theme.role_size(theme.TextRole.ACTION),
+                        color=theme.COLORS["accent"],
+                    ),
+                    padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                    border_radius=4,
+                    bgcolor=theme.COLORS["accent_soft"] if active else None,
+                    border=(
+                        ft.border.only(left=ft.BorderSide(3, theme.COLORS["accent"]))
+                        if active
+                        else None
+                    ),
+                    ink=True,
+                    on_click=lambda _e, n=name: self._open_section(n),
+                )
+            )
+
+    def _content_card(self, section_name: str, controls: list[ft.Control]) -> ft.Container:
+        width = theme.ADMIN_CONTENT_WIDTH.get(section_name, 680)
+        return ft.Container(
+            content=ft.Column(controls, spacing=6, tight=True),
+            width=width,
+            bgcolor=theme.COLORS["surface"],
+            border=ft.border.all(theme.CONTENT_BORDER_WIDTH, theme.COLORS["border"]),
+            border_radius=8,
+            padding=theme.SPACING["md"],
+            alignment=ft.alignment.top_left,
+        )
+
     def _open_section(self, name: str) -> None:
         self.section = name
+        self._rebuild_nav()
         self.body.controls.clear()
         if name == "Vzhled":
             self._render_appearance()
@@ -103,14 +127,20 @@ class AdminScreen:
         elif name == "Kategorie":
             cats = sorted(self.state.config.allowed_categories) if self.state.config else []
             self.body.controls.append(
-                ft.Text(
-                    "Povolené kategorie",
-                    size=theme.role_size(theme.TextRole.ACTION),
-                    weight=ft.FontWeight.W_600,
+                self._content_card(
+                    name,
+                    [
+                        ft.Text(
+                            "Povolené kategorie",
+                            size=theme.role_size(theme.TextRole.ACTION),
+                            weight=ft.FontWeight.W_600,
+                        ),
+                        ft.Text(
+                            ", ".join(cats) or "—",
+                            size=theme.role_size(theme.TextRole.BODY),
+                        ),
+                    ],
                 )
-            )
-            self.body.controls.append(
-                ft.Text(", ".join(cats) or "—", size=theme.role_size(theme.TextRole.BODY))
             )
         elif name == "Info":
             self._render_info()
@@ -129,7 +159,9 @@ class AdminScreen:
 
         cfg = self.state.config
         if cfg is None:
-            self.body.controls.append(ft.Text("Config není načten."))
+            self.body.controls.append(
+                self._content_card("Čtečka", [ft.Text("Config není načten.")])
+            )
             return
 
         mode = cfg.reader_mode
@@ -278,32 +310,37 @@ class AdminScreen:
                 except Exception:
                     pass
 
-        status_line = status.message if status else state_text
-        self.body.controls.extend(
-            [
+        status_line = status.message if status else None
+        controls: list[ft.Control] = [
+            ft.Text(
+                "Čtečka",
+                size=theme.role_size(theme.TextRole.ACTION),
+                weight=ft.FontWeight.W_600,
+            ),
+            ft.Text(
+                f"Režim: {'Automaticky – ELATEC' if mode == 'auto_elatec' else 'Ruční COM'}",
+                size=theme.role_size(theme.TextRole.BODY),
+            ),
+            ft.Text(
+                f"Stav: {state_text}",
+                size=theme.role_size(theme.TextRole.BODY),
+                weight=ft.FontWeight.W_600,
+            ),
+            ft.Text(
+                "\n".join(device_lines),
+                size=theme.role_size(theme.TextRole.BODY),
+            ),
+        ]
+        if status_line and status_line != state_text:
+            controls.append(
                 ft.Text(
-                    "Čtečka",
-                    size=theme.role_size(theme.TextRole.ACTION),
-                    weight=ft.FontWeight.W_600,
-                ),
-                ft.Text(
-                    f"Režim: {'Automaticky – ELATEC' if mode == 'auto_elatec' else 'Ruční COM'}",
-                    size=theme.role_size(theme.TextRole.BODY),
-                ),
-                ft.Text(
-                    f"Stav: {state_text}",
-                    size=theme.role_size(theme.TextRole.BODY),
-                    weight=ft.FontWeight.W_600,
-                ),
-                ft.Text(
-                    "\n".join(device_lines),
-                    size=theme.role_size(theme.TextRole.BODY),
-                ),
-                ft.Text(
-                    f"Runtime: {status_line}",
+                    status_line,
                     size=theme.role_size(theme.TextRole.META),
                     color=theme.COLORS["text_secondary"],
-                ),
+                )
+            )
+        controls.extend(
+            [
                 mode_group,
                 port_dd,
                 baud_dd,
@@ -317,63 +354,63 @@ class AdminScreen:
                 ),
             ]
         )
+        self.body.controls.append(self._content_card("Čtečka", controls))
 
     def _render_info(self) -> None:
         cfg = self.state.config
-        self.body.controls.extend(
-            [
-                ft.Text(
-                    "Info",
-                    size=theme.role_size(theme.TextRole.ACTION),
-                    weight=ft.FontWeight.W_600,
-                ),
-                ft.Text(
-                    "Databáze",
-                    size=theme.role_size(theme.TextRole.META),
-                    weight=ft.FontWeight.W_700,
-                    color=theme.COLORS["text_secondary"],
-                ),
-                ft.Text(
-                    f"{cfg.host}:{cfg.port} / {cfg.database}" if cfg else "—",
-                    size=theme.role_size(theme.TextRole.BODY),
-                ),
-                ft.Text(
-                    "Stanice",
-                    size=theme.role_size(theme.TextRole.META),
-                    weight=ft.FontWeight.W_700,
-                    color=theme.COLORS["text_secondary"],
-                ),
-                ft.Text(
-                    f"Provozovna: {cfg.site_name}\nStanice: {cfg.instance_id}"
-                    if cfg
-                    else "—",
-                    size=theme.role_size(theme.TextRole.BODY),
-                ),
-                ft.Text(
-                    "Audit (posledních 50)",
-                    size=theme.role_size(theme.TextRole.META),
-                    weight=ft.FontWeight.W_700,
-                    color=theme.COLORS["text_secondary"],
-                ),
-            ]
-        )
+        controls: list[ft.Control] = [
+            ft.Text(
+                "Info",
+                size=theme.role_size(theme.TextRole.ACTION),
+                weight=ft.FontWeight.W_600,
+            ),
+            ft.Text(
+                "Databáze",
+                size=theme.role_size(theme.TextRole.META),
+                weight=ft.FontWeight.W_700,
+                color=theme.COLORS["text_secondary"],
+            ),
+            ft.Text(
+                f"{cfg.host}:{cfg.port} / {cfg.database}" if cfg else "—",
+                size=theme.role_size(theme.TextRole.BODY),
+            ),
+            ft.Text(
+                "Stanice",
+                size=theme.role_size(theme.TextRole.META),
+                weight=ft.FontWeight.W_700,
+                color=theme.COLORS["text_secondary"],
+            ),
+            ft.Text(
+                f"Provozovna: {cfg.site_name}\nStanice: {cfg.instance_id}"
+                if cfg
+                else "—",
+                size=theme.role_size(theme.TextRole.BODY),
+            ),
+            ft.Text(
+                "Audit (posledních 50)",
+                size=theme.role_size(theme.TextRole.META),
+                weight=ft.FontWeight.W_700,
+                color=theme.COLORS["text_secondary"],
+            ),
+        ]
         events = self.state.identity_store.read_audit() if self.state.identity_store else []
         if not events:
-            self.body.controls.append(
+            controls.append(
                 ft.Text(
                     "Žádné auditní záznamy.",
                     size=theme.role_size(theme.TextRole.META),
                     color=theme.COLORS["text_secondary"],
                 )
             )
-            return
-        for event in events[-50:]:
-            self.body.controls.append(
-                ft.Text(
-                    f"{event.get('timestamp')} · {event.get('action')} · {event.get('target')}",
-                    size=theme.role_size(theme.TextRole.META),
+        else:
+            for event in events[-50:]:
+                controls.append(
+                    ft.Text(
+                        f"{event.get('timestamp')} · {event.get('action')} · {event.get('target')}",
+                        size=theme.role_size(theme.TextRole.META),
+                    )
                 )
-            )
+        self.body.controls.append(self._content_card("Info", controls))
 
     def _render_sup_gate(self) -> None:
         password = ft.TextField(
@@ -389,26 +426,49 @@ class AdminScreen:
             else:
                 message_dialog(self.page, title="SUP", body="Neplatné heslo administrátora.")
 
-        self.body.controls.extend(
-            [
-                empty_state(
-                    "Ověření SUP",
-                    "Citlivé administrativní akce vyžadují heslo administrátora SUP.",
-                ),
-                password,
-                ft.FilledButton("Ověřit", on_click=_unlock),
-            ]
+        self.body.controls.append(
+            self._content_card(
+                self.section,
+                [
+                    empty_state(
+                        "Ověření SUP",
+                        "Citlivé administrativní akce vyžadují heslo administrátora SUP.",
+                    ),
+                    password,
+                    ft.FilledButton("Ověřit", on_click=_unlock),
+                ],
+            )
         )
 
     def _render_users(self) -> None:
         try:
             users = self.vm.list_db_users()
         except Exception as exc:
-            self.body.controls.append(empty_state("Uživatelé", str(exc)))
+            self.body.controls.append(
+                self._content_card("Uživatelé", [empty_state("Uživatelé", str(exc))])
+            )
             return
-        self.body.controls.append(
-            ft.FilledButton("+ Nový uživatel", on_click=self._new_user_dialog)
+
+        header_style = dict(
+            size=theme.role_size(theme.TextRole.META),
+            weight=ft.FontWeight.W_700,
+            color=theme.COLORS["text_secondary"],
         )
+        rows: list[ft.Control] = [
+            ft.FilledButton("+ Nový uživatel", on_click=self._new_user_dialog),
+            ft.Row(
+                [
+                    ft.Container(ft.Text("Jméno/kód", **header_style), width=_USERS_NAME_W),
+                    ft.Container(ft.Text("Stav", **header_style), width=_USERS_STATUS_W),
+                    ft.Container(
+                        ft.Text("JLL profil", **header_style), width=_USERS_PROFILE_W
+                    ),
+                    ft.Text("Akce", **header_style),
+                ],
+                spacing=theme.SPACING["sm"],
+                tight=True,
+            ),
+        ]
         for user in users:
             status = "zakázaný" if user.disabled else "aktivní"
             profile = None
@@ -421,30 +481,63 @@ class AdminScreen:
                 if profile is not None
                 else "bez JLL profilu"
             )
-            row = ft.Row(
-                [
-                    ft.Text(
-                        f"{user.code} · {user.display_name}",
-                        size=theme.role_size(theme.TextRole.BODY),
-                        expand=True,
-                        overflow=ft.TextOverflow.ELLIPSIS,
-                        max_lines=1,
-                    ),
-                    ft.Text(status, size=theme.role_size(theme.TextRole.META)),
-                    ft.Text(perms, size=theme.role_size(theme.TextRole.META)),
-                    ft.TextButton(
-                        "Oprávnění",
-                        visible=profile is not None and not user.is_admin,
-                        on_click=lambda _e, u=user: self._edit_permissions(u),
-                    ),
-                    ft.TextButton(
-                        "Zavést profil",
-                        visible=profile is None and not user.is_admin,
-                        on_click=lambda _e, u=user: self._ensure(u),
-                    ),
-                ]
+            rows.append(
+                ft.Row(
+                    [
+                        ft.Container(
+                            content=ft.Text(
+                                f"{user.code} · {user.display_name}",
+                                size=theme.role_size(theme.TextRole.BODY),
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                                max_lines=1,
+                            ),
+                            width=_USERS_NAME_W,
+                        ),
+                        ft.Container(
+                            content=ft.Text(
+                                status, size=theme.role_size(theme.TextRole.META)
+                            ),
+                            width=_USERS_STATUS_W,
+                        ),
+                        ft.Container(
+                            content=ft.Text(
+                                perms, size=theme.role_size(theme.TextRole.META)
+                            ),
+                            width=_USERS_PROFILE_W,
+                        ),
+                        ft.Row(
+                            [
+                                ft.TextButton(
+                                    "Oprávnění",
+                                    visible=profile is not None and not user.is_admin,
+                                    style=ft.ButtonStyle(
+                                        padding=ft.padding.symmetric(
+                                            horizontal=8, vertical=0
+                                        )
+                                    ),
+                                    on_click=lambda _e, u=user: self._edit_permissions(u),
+                                ),
+                                ft.TextButton(
+                                    "Zavést profil",
+                                    visible=profile is None and not user.is_admin,
+                                    style=ft.ButtonStyle(
+                                        padding=ft.padding.symmetric(
+                                            horizontal=8, vertical=0
+                                        )
+                                    ),
+                                    on_click=lambda _e, u=user: self._ensure(u),
+                                ),
+                            ],
+                            spacing=0,
+                            tight=True,
+                        ),
+                    ],
+                    spacing=theme.SPACING["sm"],
+                    tight=True,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                )
             )
-            self.body.controls.append(row)
+        self.body.controls.append(self._content_card("Uživatelé", rows))
 
     def _ensure(self, user) -> None:
         try:
@@ -513,7 +606,7 @@ class AdminScreen:
             ),
             content=ft.Container(
                 content=ft.Column(groups, scroll=ft.ScrollMode.AUTO, spacing=4),
-                width=480,
+                width=560,
                 height=460,
             ),
             actions=[
@@ -560,25 +653,24 @@ class AdminScreen:
         self.page.update()
 
     def _render_permissions_help(self) -> None:
-        self.body.controls.append(
+        controls: list[ft.Control] = [
             ft.Text(
                 "Uživatelská oprávnění",
                 size=theme.role_size(theme.TextRole.ACTION),
                 weight=ft.FontWeight.W_600,
-            )
-        )
-        self.body.controls.append(
+            ),
             ft.Text(
                 "Vyberte uživatele a upravte česká oprávnění. "
                 "SUP zůstává oddělený přes heslo administrátora.",
                 size=theme.role_size(theme.TextRole.BODY),
                 color=theme.COLORS["text_secondary"],
-            )
-        )
+            ),
+        ]
         try:
             users = self.vm.list_db_users()
         except Exception as exc:
-            self.body.controls.append(empty_state("Oprávnění", str(exc)))
+            controls.append(empty_state("Oprávnění", str(exc)))
+            self.body.controls.append(self._content_card("Oprávnění", controls))
             return
         for user in users:
             if user.is_admin or user.code.upper() == "SUP":
@@ -589,7 +681,7 @@ class AdminScreen:
                     profile = item
                     break
             count = len(profile.permissions) if profile is not None else 0
-            self.body.controls.append(
+            controls.append(
                 ft.Container(
                     content=ft.Row(
                         [
@@ -610,7 +702,6 @@ class AdminScreen:
                                 ],
                                 spacing=0,
                                 tight=True,
-                                expand=True,
                             ),
                             ft.TextButton(
                                 "Upravit",
@@ -620,13 +711,15 @@ class AdminScreen:
                                 on_click=lambda _e, u=user: self._edit_permissions(u),
                             ),
                         ],
+                        spacing=theme.SPACING["md"],
+                        tight=True,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                     padding=ft.padding.symmetric(vertical=2),
                 )
             )
-        self.body.controls.append(ft.Divider(height=1))
-        self.body.controls.append(
+        controls.append(ft.Divider(height=1))
+        controls.append(
             ft.Text(
                 "Katalog oprávnění",
                 size=theme.role_size(theme.TextRole.ACTION),
@@ -637,19 +730,20 @@ class AdminScreen:
         for item in PERMISSION_CATALOG:
             if item.group != current_group:
                 current_group = item.group
-                self.body.controls.append(
+                controls.append(
                     ft.Text(
                         current_group,
                         size=theme.role_size(theme.TextRole.META),
                         weight=ft.FontWeight.W_700,
                     )
                 )
-            self.body.controls.append(
+            controls.append(
                 ft.Text(
                     f"{item.title_cs} — {item.description_cs}",
                     size=theme.role_size(theme.TextRole.META),
                 )
             )
+        self.body.controls.append(self._content_card("Oprávnění", controls))
 
     def _render_appearance(self) -> None:
         group = ft.RadioGroup(
@@ -657,7 +751,7 @@ class AdminScreen:
                 [
                     ft.Radio(
                         value=scale.name,
-                        label=f"Velikost textu {scale.label_cs}",
+                        label=scale.label_cs,
                     )
                     for scale in theme.TextScale
                 ],
@@ -667,17 +761,21 @@ class AdminScreen:
             value=self.state.text_scale.name,
             on_change=lambda e: self.on_text_scale(theme.TextScale[e.control.value]),
         )
-        self.body.controls = [
-            ft.Text(
-                "Velikost textu",
-                size=theme.role_size(theme.TextRole.ACTION),
-                weight=ft.FontWeight.W_600,
-            ),
-            ft.Text(
-                "Zvětší text v celé aplikaci včetně popisků tlačítek a buněk mřížky. "
-                "Role: PRIMARY (nadpis), ACTION (tlačítka), BODY (hodnoty), META (info).",
-                size=theme.role_size(theme.TextRole.META),
-                color=theme.COLORS["text_secondary"],
-            ),
-            group,
-        ]
+        self.body.controls.append(
+            self._content_card(
+                "Vzhled",
+                [
+                    ft.Text(
+                        "Velikost textu",
+                        size=theme.role_size(theme.TextRole.ACTION),
+                        weight=ft.FontWeight.W_600,
+                    ),
+                    ft.Text(
+                        "Zvolte velikost textu v celé aplikaci.",
+                        size=theme.role_size(theme.TextRole.META),
+                        color=theme.COLORS["text_secondary"],
+                    ),
+                    group,
+                ],
+            )
+        )
