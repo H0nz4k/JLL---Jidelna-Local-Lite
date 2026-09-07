@@ -6,6 +6,26 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.4.1] – 2026-09-07
+
+Payment parity hardening:
+
+- odstraněn `float(Decimal)` z `zapisplatbu` cesty;
+- chip deposit/refund > 0 opět fail-closed (legacy je hotovost + `uctenky_kasy`);
+- banka není náhrada hotovosti;
+- charakterizace cash chip contractu.
+
+### Added
+
+- `docs/JLL_PAYMENT_PARITY_HARDENING_0.4.1.md`
+- `docs/JLL_CASH_CHIP_CONTRACT_0.4.1.md`
+- Decimal exactness integrační testy
+
+### Changed
+
+- Canonical verze `0.4.1`.
+- `PAYMENT_WRITE_GATES["chip_deposit"|"chip_deposit_refund"]` → BLOCKED.
+
 ## [0.4.0] – 2026-09-07
 
 Platby + peněžní deník + atomická záloha/vratka za čip:

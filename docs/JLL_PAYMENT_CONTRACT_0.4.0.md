@@ -29,12 +29,15 @@ JLL volá DB funkci přímo s **finální** částkou do `penden.castka`:
 
 | Gate | Status |
 | --- | --- |
-| `manual_payment` | PROVEN (jedna služba, nehotovost) |
-| `cash_payment` | BLOCKED (`uctenky_kasy` / EET) |
+| `manual_payment` | PROVEN (jedna služba, nehotovost; Decimal bez Python float) |
+| `cash_payment` | BLOCKED (`uctenky_kasy` / doklad) |
 | `refund` | BLOCKED |
-| `chip_deposit` | PROVEN |
-| `chip_deposit_refund` | PROVEN |
-| `homebanking_link` | BLOCKED (žádný deterministický pár `platby`↔`penden`) |
+| `chip_deposit` | BLOCKED (legacy hotovost; viz 0.4.1) |
+| `chip_deposit_refund` | BLOCKED |
+| `homebanking_link` | BLOCKED |
+
+Aktualizace parity: `docs/JLL_PAYMENT_PARITY_HARDENING_0.4.1.md`,
+`docs/JLL_CASH_CHIP_CONTRACT_0.4.1.md`.
 
 ## Ruční platba
 
@@ -47,4 +50,5 @@ JLL volá DB funkci přímo s **finální** částkou do `penden.castka`:
 
 ## Čip
 
-Viz `docs/JLL_CHIP_PAYMENT_ATOMICITY_0.4.0.md`.
+Viz `docs/JLL_CHIP_PAYMENT_ATOMICITY_0.4.0.md` a aktualizaci
+`docs/JLL_CASH_CHIP_CONTRACT_0.4.1.md` (deposit>0 = BLOCKED do cash PROVEN).

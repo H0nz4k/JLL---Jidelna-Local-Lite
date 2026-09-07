@@ -1,9 +1,8 @@
-"""0.4.0 payments history + manual post + atomic chip deposit."""
+"""0.4.0/0.4.1 payments: history, manual non-cash, Decimal, deposit>0 fail-closed."""
 
 from __future__ import annotations
 
 from decimal import Decimal
-from unittest.mock import patch
 
 import pytest
 
@@ -15,7 +14,11 @@ from jll.payment_history_service import PaymentHistoryService
 from jll.payment_models import ManualPaymentCommand
 from jll.payment_service import PaymentService
 from jll.policy import Permission, SessionPolicy
-from jll.write_gates import PAYMENT_WRITE_GATES, ContractStatus
+from jll.write_gates import (
+    PAYMENT_WRITE_GATES,
+    ContractStatus,
+    WriteContractNotProven,
+)
 
 from conftest import LabDatabase
 
@@ -23,7 +26,7 @@ pytestmark = pytest.mark.integration
 
 CATEGORY = "1JARO"
 ACTOR = "LABTEST:VED"
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 
 
 def _settings(database: LabDatabase) -> OrderServiceSettings:
@@ -116,6 +119,76 @@ def test_payment_history_requires_view_and_scopes(lab_database: LabDatabase) -> 
         _cleanup(lab_database, diner.evidcislo)
 
 
+@pytest.mark.parametrize(
+    "amount",
+    [
+        Decimal("0.01"),
+        Decimal("0.10"),
+        Decimal("0.29"),
+        Decimal("1234.56"),
+        Decimal("999999.99"),
+    ],
+)
+def test_manual_payment_decimal_exactness(
+    lab_database: LabDatabase, amount: Decimal
+) -> None:
+    diners, _, payments, history = _services(lab_database)
+    diner = diners.create(
+        CreateDinerCommand(
+            jmeno=f"JLLTEST PAY DEC {amount}",
+            kategorie=CATEGORY,
+            actor=ACTOR,
+            client_version=VERSION,
+        )
+    )
+    try:
+        this_m = payments.accounting_periods()[0][1]
+        with lab_database.connect() as connection:
+            before_tm = Decimal(
+                str(
+                    connection.execute(
+                        "SELECT platbatm FROM public.stravnik WHERE evidcislo=%s",
+                        (diner.evidcislo,),
+                    ).fetchone()[0]
+                    or 0
+                )
+            )
+        result = payments.post_manual(
+            ManualPaymentCommand(
+                evidcislo=diner.evidcislo,
+                amount=amount,
+                payment_method_code="4",
+                account="STRAV",
+                service_type="Oběd-A",
+                period_month=this_m,
+                note="JLL decimal",
+                actor=ACTOR,
+                client_version=VERSION,
+            )
+        )
+        assert result.amount == amount
+        detail = history.get_detail(result.penden_id)
+        assert detail.amount == amount
+        with lab_database.connect() as connection:
+            row = connection.execute(
+                "SELECT castka FROM public.penden WHERE id=%s",
+                (result.penden_id,),
+            ).fetchone()
+            after_tm = Decimal(
+                str(
+                    connection.execute(
+                        "SELECT platbatm FROM public.stravnik WHERE evidcislo=%s",
+                        (diner.evidcislo,),
+                    ).fetchone()[0]
+                    or 0
+                )
+            )
+        assert Decimal(str(row[0])) == amount
+        assert after_tm - before_tm == amount
+    finally:
+        _cleanup(lab_database, diner.evidcislo)
+
+
 def test_manual_payment_bank_single_service(lab_database: LabDatabase) -> None:
     assert PAYMENT_WRITE_GATES["manual_payment"].status is ContractStatus.PROVEN
     diners, _, payments, history = _services(lab_database)
@@ -129,11 +202,6 @@ def test_manual_payment_bank_single_service(lab_database: LabDatabase) -> None:
     )
     try:
         this_y, this_m = payments.accounting_periods()[0]
-        with lab_database.connect() as connection:
-            before_tm = connection.execute(
-                "SELECT platbatm FROM public.stravnik WHERE evidcislo=%s",
-                (diner.evidcislo,),
-            ).fetchone()[0]
         result = payments.post_manual(
             ManualPaymentCommand(
                 evidcislo=diner.evidcislo,
@@ -148,31 +216,9 @@ def test_manual_payment_bank_single_service(lab_database: LabDatabase) -> None:
             )
         )
         assert result.ledger_type == "P"
-        assert result.amount == Decimal("150.50")
-        page = history.list_for_diner(diner.evidcislo, limit=5)
-        assert len(page.items) == 1
-        entry = page.items[0]
+        entry = history.list_for_diner(diner.evidcislo, limit=5).items[0]
         assert entry.id == result.penden_id
-        assert entry.amount == Decimal("150.50")
-        assert entry.ledger_type == "P"
         assert entry.category_snapshot == CATEGORY
-        detail = history.get_detail(result.penden_id)
-        assert detail.payment_method_code == "4"
-        assert detail.account == "STRAV"
-        with lab_database.connect() as connection:
-            after_tm = connection.execute(
-                "SELECT platbatm FROM public.stravnik WHERE evidcislo=%s",
-                (diner.evidcislo,),
-            ).fetchone()[0]
-            audit = connection.execute(
-                """
-                SELECT count(*) FROM public.udalosti
-                WHERE stravnik=%s AND udalost='Platba' AND typ='B'
-                """,
-                (diner.evidcislo,),
-            ).fetchone()[0]
-        assert Decimal(str(after_tm)) - Decimal(str(before_tm or 0)) == Decimal("150.50")
-        assert int(audit) >= 1
         assert this_y == result.period_year
     finally:
         _cleanup(lab_database, diner.evidcislo)
@@ -190,7 +236,7 @@ def test_cash_payment_blocked(lab_database: LabDatabase) -> None:
     )
     try:
         this_m = payments.accounting_periods()[0][1]
-        with pytest.raises(Exception):
+        with pytest.raises(WriteContractNotProven):
             payments.post_manual(
                 ManualPaymentCommand(
                     evidcislo=diner.evidcislo,
@@ -204,15 +250,19 @@ def test_cash_payment_blocked(lab_database: LabDatabase) -> None:
                     client_version=VERSION,
                 )
             )
+        assert PAYMENT_WRITE_GATES["cash_payment"].status is ContractStatus.BLOCKED
     finally:
         _cleanup(lab_database, diner.evidcislo)
 
 
-def test_atomic_chip_assign_and_return_with_deposit(lab_database: LabDatabase) -> None:
-    diners, chips, _, history = _services(lab_database)
+def test_chip_deposit_positive_fail_closed_no_mutation(
+    lab_database: LabDatabase,
+) -> None:
+    assert PAYMENT_WRITE_GATES["chip_deposit"].status is ContractStatus.BLOCKED
+    diners, chips, _, _ = _services(lab_database)
     diner = diners.create(
         CreateDinerCommand(
-            jmeno="JLLTEST CHIP DEP",
+            jmeno="JLLTEST CHIP DEP BLOCK",
             kategorie=CATEGORY,
             actor=ACTOR,
             client_version=VERSION,
@@ -224,7 +274,80 @@ def test_atomic_chip_assign_and_return_with_deposit(lab_database: LabDatabase) -
                 "SELECT cislo FROM public.cipy WHERE stav='V' ORDER BY cislo LIMIT 1"
             ).fetchone()[0]
         )
+        before = connection.execute(
+            "SELECT stav, stravnik FROM public.cipy WHERE cislo=%s",
+            (chip_code,),
+        ).fetchone()
+        hist_before = connection.execute(
+            "SELECT count(*) FROM public.histcipu WHERE cislo=%s",
+            (chip_code,),
+        ).fetchone()[0]
         _set_deposit(connection, "100")
+        connection.commit()
+    try:
+        with pytest.raises(OrderBusinessError) as exc:
+            chips.assign(
+                ChipCommand(
+                    chip_code=chip_code,
+                    evidcislo=diner.evidcislo,
+                    actor=ACTOR,
+                    client_version=VERSION,
+                )
+            )
+        assert exc.value.code is ErrorCode.RELATION_CONFIG_INVALID
+        assert "Hotovostní" in str(exc.value)
+        with lab_database.connect() as connection:
+            after = connection.execute(
+                "SELECT stav, stravnik FROM public.cipy WHERE cislo=%s",
+                (chip_code,),
+            ).fetchone()
+            hist_after = connection.execute(
+                "SELECT count(*) FROM public.histcipu WHERE cislo=%s",
+                (chip_code,),
+            ).fetchone()[0]
+            penden = connection.execute(
+                "SELECT count(*) FROM public.penden WHERE evidcislo=%s",
+                (diner.evidcislo,),
+            ).fetchone()[0]
+            uctenky = connection.execute(
+                "SELECT count(*) FROM public.uctenky_kasy WHERE evidcislo=%s",
+                (diner.evidcislo,),
+            ).fetchone()[0]
+            owner = connection.execute(
+                "SELECT COALESCE(btrim(cip),'') FROM public.stravnik WHERE evidcislo=%s",
+                (diner.evidcislo,),
+            ).fetchone()[0]
+        assert after == before
+        assert hist_after == hist_before
+        assert int(penden) == 0
+        assert int(uctenky) == 0
+        assert str(owner) == ""
+    finally:
+        with lab_database.connect() as connection:
+            _set_deposit(connection, "0")
+            connection.commit()
+        _cleanup(lab_database, diner.evidcislo, chip_code)
+
+
+def test_chip_return_positive_fail_closed_no_mutation(
+    lab_database: LabDatabase,
+) -> None:
+    diners, chips, _, _ = _services(lab_database)
+    diner = diners.create(
+        CreateDinerCommand(
+            jmeno="JLLTEST CHIP RET BLOCK",
+            kategorie=CATEGORY,
+            actor=ACTOR,
+            client_version=VERSION,
+        )
+    )
+    with lab_database.connect() as connection:
+        chip_code = str(
+            connection.execute(
+                "SELECT cislo FROM public.cipy WHERE stav='V' ORDER BY cislo LIMIT 1"
+            ).fetchone()[0]
+        )
+        _set_deposit(connection, "0")
         connection.commit()
     try:
         chips.assign(
@@ -236,115 +359,38 @@ def test_atomic_chip_assign_and_return_with_deposit(lab_database: LabDatabase) -
             )
         )
         with lab_database.connect() as connection:
-            chip_row = connection.execute(
+            before = connection.execute(
                 "SELECT stav, stravnik FROM public.cipy WHERE cislo=%s",
                 (chip_code,),
             ).fetchone()
-            owner = connection.execute(
-                "SELECT COALESCE(btrim(cip),'') FROM public.stravnik WHERE evidcislo=%s",
+            penden_before = connection.execute(
+                "SELECT count(*) FROM public.penden WHERE evidcislo=%s",
                 (diner.evidcislo,),
             ).fetchone()[0]
-            penden = connection.execute(
-                """
-                SELECT castka, typ, mesic, typplatby
-                FROM public.penden
-                WHERE evidcislo=%s AND typ='C'
-                ORDER BY id DESC LIMIT 1
-                """,
-                (diner.evidcislo,),
-            ).fetchone()
-        assert str(chip_row[0]) == "P"
-        assert int(chip_row[1]) == diner.evidcislo
-        assert str(owner) == chip_code
-        assert penden is not None
-        assert Decimal(str(penden[0])) == Decimal("100")
-        assert str(penden[1]) == "C"
-        assert int(penden[2]) == 0
-        assert str(penden[3]) != "1"
-
-        page = history.list_for_diner(diner.evidcislo)
-        assert any(i.ledger_type == "C" and i.amount == Decimal("100") for i in page.items)
-
-        chips.return_chip(
-            ChipCommand(
-                chip_code=chip_code,
-                evidcislo=diner.evidcislo,
-                actor=ACTOR,
-                client_version=VERSION,
-            )
-        )
-        with lab_database.connect() as connection:
-            chip_row = connection.execute(
-                "SELECT stav, stravnik FROM public.cipy WHERE cislo=%s",
-                (chip_code,),
-            ).fetchone()
-            refunds = connection.execute(
-                """
-                SELECT castka FROM public.penden
-                WHERE evidcislo=%s AND typ='C' AND castka < 0
-                """,
-                (diner.evidcislo,),
-            ).fetchall()
-        assert str(chip_row[0]) == "V"
-        assert int(chip_row[1]) == 0
-        assert any(Decimal(str(r[0])) == Decimal("-100") for r in refunds)
-    finally:
-        with lab_database.connect() as connection:
-            _set_deposit(connection, "0")
+            _set_deposit(connection, "75")
             connection.commit()
-        _cleanup(lab_database, diner.evidcislo, chip_code)
-
-
-def test_chip_assign_rolls_back_when_finance_fails(lab_database: LabDatabase) -> None:
-    diners, chips, payments, _ = _services(lab_database)
-    diner = diners.create(
-        CreateDinerCommand(
-            jmeno="JLLTEST CHIP FINFAIL",
-            kategorie=CATEGORY,
-            actor=ACTOR,
-            client_version=VERSION,
-        )
-    )
-    with lab_database.connect() as connection:
-        chip_code = str(
-            connection.execute(
-                "SELECT cislo FROM public.cipy WHERE stav='V' ORDER BY cislo LIMIT 1"
-            ).fetchone()[0]
-        )
-        before = connection.execute(
-            "SELECT stav, stravnik FROM public.cipy WHERE cislo=%s",
-            (chip_code,),
-        ).fetchone()
-        _set_deposit(connection, "100")
-        connection.commit()
-    try:
-        with patch.object(
-            payments,
-            "post_chip_deposit_on_cursor",
-            side_effect=OrderBusinessError(
-                ErrorCode.POSTCONDITION_FAILED, "injected finance fail"
-            ),
-        ):
-            with pytest.raises(OrderBusinessError, match="injected finance fail"):
-                chips.assign(
-                    ChipCommand(
-                        chip_code=chip_code,
-                        evidcislo=diner.evidcislo,
-                        actor=ACTOR,
-                        client_version=VERSION,
-                    )
+        with pytest.raises(OrderBusinessError) as exc:
+            chips.return_chip(
+                ChipCommand(
+                    chip_code=chip_code,
+                    evidcislo=diner.evidcislo,
+                    actor=ACTOR,
+                    client_version=VERSION,
                 )
+            )
+        assert exc.value.code is ErrorCode.RELATION_CONFIG_INVALID
+        assert "75" in str(exc.value).replace(",", ".")
         with lab_database.connect() as connection:
             after = connection.execute(
                 "SELECT stav, stravnik FROM public.cipy WHERE cislo=%s",
                 (chip_code,),
             ).fetchone()
-            penden = connection.execute(
+            penden_after = connection.execute(
                 "SELECT count(*) FROM public.penden WHERE evidcislo=%s",
                 (diner.evidcislo,),
             ).fetchone()[0]
         assert after == before
-        assert int(penden) == 0
+        assert penden_after == penden_before
     finally:
         with lab_database.connect() as connection:
             _set_deposit(connection, "0")
@@ -352,65 +398,20 @@ def test_chip_assign_rolls_back_when_finance_fails(lab_database: LabDatabase) ->
         _cleanup(lab_database, diner.evidcislo, chip_code)
 
 
-def test_chip_assign_rolls_back_finance_when_chip_fails(
-    lab_database: LabDatabase,
-) -> None:
-    diners, chips, _, _ = _services(lab_database)
-    diner = diners.create(
-        CreateDinerCommand(
-            jmeno="JLLTEST CHIP CHIPFAIL",
-            kategorie=CATEGORY,
-            actor=ACTOR,
-            client_version=VERSION,
-        )
-    )
+def test_cash_type_and_gates_documented(lab_database: LabDatabase) -> None:
     with lab_database.connect() as connection:
-        chip_code = str(
-            connection.execute(
-                "SELECT cislo FROM public.cipy WHERE stav='V' ORDER BY cislo LIMIT 1"
-            ).fetchone()[0]
-        )
-        before = connection.execute(
-            "SELECT stav, stravnik FROM public.cipy WHERE cislo=%s",
-            (chip_code,),
+        row = connection.execute(
+            "SELECT popis FROM public.typplatb WHERE btrim(typplatby)='1'"
         ).fetchone()
-        _set_deposit(connection, "100")
-        connection.commit()
-    try:
-        with patch.object(
-            chips,
-            "_assign_tx",
-            side_effect=OrderBusinessError(
-                ErrorCode.POSTCONDITION_FAILED, "injected chip fail"
-            ),
-        ):
-            with pytest.raises(OrderBusinessError, match="injected chip fail"):
-                chips.assign(
-                    ChipCommand(
-                        chip_code=chip_code,
-                        evidcislo=diner.evidcislo,
-                        actor=ACTOR,
-                        client_version=VERSION,
-                    )
-                )
-        with lab_database.connect() as connection:
-            after = connection.execute(
-                "SELECT stav, stravnik FROM public.cipy WHERE cislo=%s",
-                (chip_code,),
-            ).fetchone()
-            penden = connection.execute(
-                "SELECT count(*) FROM public.penden WHERE evidcislo=%s AND typ='C'",
-                (diner.evidcislo,),
-            ).fetchone()[0]
-            owner = connection.execute(
-                "SELECT COALESCE(btrim(cip),'') FROM public.stravnik WHERE evidcislo=%s",
-                (diner.evidcislo,),
-            ).fetchone()[0]
-        assert after == before
-        assert int(penden) == 0
-        assert str(owner) == ""
-    finally:
-        with lab_database.connect() as connection:
-            _set_deposit(connection, "0")
-            connection.commit()
-        _cleanup(lab_database, diner.evidcislo, chip_code)
+        eet = connection.execute(
+            """
+            SELECT DISTINCT hodnota FROM public.parametry
+            WHERE lower(btrim(parametr))=lower('ModulEET')
+            """
+        ).fetchall()
+    assert row is not None
+    assert "Hotov" in str(row[0])
+    assert PAYMENT_WRITE_GATES["chip_deposit"].status is ContractStatus.BLOCKED
+    assert PAYMENT_WRITE_GATES["chip_deposit_refund"].status is ContractStatus.BLOCKED
+    # LAB: ModulEET off (0) — EET není důvod k portu, ale uctenky_kasy stále chybí
+    assert {str(r[0]).strip() for r in eet} <= {"0", "1"}

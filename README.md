@@ -37,12 +37,13 @@ deadline, exkluzivitu variant a audit.
 
 ## Aktuální stav
 
-Verze `0.4.0` (Flet desktop UX). Aplikace se spouští pouze proti lokální
+Verze `0.4.1` (Flet desktop UX). Aplikace se spouští pouze proti lokální
 testovací databázi, jejíž identitu ověřuje LAB guard. Cílové UI je Flet;
 PySide6 zůstává referenční. Backend, identity, oprávnění, objednávkový
-write, create/edit strávníka, chip lifecycle (včetně atomické zálohy/vratky)
-a historie/zaúčtování plateb jsou implementované; hotovost/EET, refund
-a homebanking vazba zůstávají fail-closed. Category change zůstává PARTIAL.
+write, create/edit strávníka, chip lifecycle (deposit=0) a historie /
+ne-hotovostní zaúčtování plateb jsou implementované. Záloha za čip > 0 Kč
+(hotovostní legacy path), hotovost/EET doklad, refund a homebanking vazba
+zůstávají fail-closed. Category change zůstává PARTIAL.
 
 ## Hlavní funkce
 
@@ -74,8 +75,8 @@ a homebanking vazba zůstávají fail-closed. Category change zůstává PARTIAL
 
 - Read-only Detail čipu přes `chips.view` (nezávisle na assign gate).
 - Write: přidělit / vrátit / blokovat / odblokovat / ztracený (PROVEN).
-- Záloha `CenaZaPrvniCip=0` bez finance; `>0` atomicky s `zapisplatbu` typ `C`
-  (vyžaduje `payments.post`). Převod a hotovostní doklad zůstávají BLOCKED.
+- Záloha `CenaZaPrvniCip=0` bez finance; `>0` fail-closed (legacy hotovost
+  + `uctenky_kasy` není PROVEN — banka není náhrada). Převod BLOCKED.
 - `ChipReader` abstrakce s fake i sériovým adapterem a explicitním portem.
 - Ve Flet UI čtečka poslouchá na pozadí: přiložení čipu otevře kartu
   vlastníka. Pokud je port v nastavení, ale zařízení není připojené,
@@ -90,7 +91,8 @@ a homebanking vazba zůstávají fail-closed. Category change zůstává PARTIAL
   bez hotovosti/EET a bez automatického priority splitu.
 - Kontrakty: `docs/JLL_PAYMENT_CONTRACT_0.4.0.md`,
   `docs/JLL_PAYMENT_HISTORY_0.4.0.md`,
-  `docs/JLL_CHIP_PAYMENT_ATOMICITY_0.4.0.md`.
+  `docs/JLL_PAYMENT_PARITY_HARDENING_0.4.1.md`,
+  `docs/JLL_CASH_CHIP_CONTRACT_0.4.1.md`.
 
 ### Stav výdeje
 

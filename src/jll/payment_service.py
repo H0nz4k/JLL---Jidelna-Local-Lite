@@ -348,7 +348,7 @@ class PaymentService:
                 str(diner["jmeno"])[:30],
                 str(diner["kategorie"])[:10],
                 str(diner.get("trida") or "")[:4],
-                float(amount),
+                amount,
                 note[:80],
                 int(period_month),
                 int(period_year),

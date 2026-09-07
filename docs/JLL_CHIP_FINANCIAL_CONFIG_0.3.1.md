@@ -29,12 +29,13 @@ CenaZaDalsiCip  (BACKUP) — evidence PARTIAL, žádný aktivní assign/return k
 Contract status `CHIP_WRITE_GATES["assign"|"return"] = PROVEN` popisuje
 nefinanční DB kontrakt. Runtime dostupnost závisí na záloze.
 
-## 0.4.0
+## 0.4.0 / 0.4.1
 
-**Hotovo:** `PaymentService` atomicky spojuje čip + `VyberzaCip` / `VratzaCip`
-do jedné transakce. Viz `docs/JLL_CHIP_PAYMENT_ATOMICITY_0.4.0.md`.
-
-| Záloha | assign / return (0.4.0) |
+| Záloha | assign / return |
 | --- | --- |
-| `0` | bez finance |
-| `>0` | `zapisplatbu` typ `C` + chip ve stejné transakci (`payments.post`) |
+| `0` | bez finance (PROVEN) |
+| `>0` | FAIL-CLOSED — legacy hotovost + `uctenky_kasy` (viz 0.4.1) |
+
+0.4.0 krátce odemkla nehotovostní atomickou cestu; 0.4.1 ji zrušila jako
+neparitní. Detaily: `docs/JLL_CASH_CHIP_CONTRACT_0.4.1.md`.
+

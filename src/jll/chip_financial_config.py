@@ -34,15 +34,17 @@ class ChipFinancialConfig:
     def assign_blocked_message(self) -> str:
         amount = f"{self.first_chip_deposit:.2f}".replace(".", ",")
         return (
-            f"Tato jídelna účtuje zálohu za čip {amount} Kč.\n"
-            "Pro přidělení je potřeba oprávnění Zaúčtovat platbu."
+            f"Tato jídelna používá finanční zálohu za čip ({amount} Kč).\n"
+            "Hotovostní zaúčtování zálohy zatím není bezpečně ověřeno.\n"
+            "Operace nebyla provedena."
         )
 
     def return_blocked_message(self) -> str:
         amount = f"{self.first_chip_deposit:.2f}".replace(".", ",")
         return (
-            f"Tato jídelna vrací zálohu za čip {amount} Kč.\n"
-            "Pro vrácení je potřeba oprávnění Zaúčtovat platbu."
+            f"Tato jídelna vrací zálohu za čip ({amount} Kč).\n"
+            "Hotovostní vratka zatím není bezpečně ověřena.\n"
+            "Operace nebyla provedena."
         )
 
 

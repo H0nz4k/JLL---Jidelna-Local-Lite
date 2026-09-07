@@ -1,44 +1,23 @@
 # JLL chip payment atomicity 0.4.0
 
-## Invariant
+> **0.4.1 update:** deposit/refund > 0 je opět **FAIL-CLOSED**.
+> 0.4.0 nehotovostní „atomická“ cesta nebyla legacy-paritní (hotovost +
+> `uctenky_kasy`). Viz `docs/JLL_CASH_CHIP_CONTRACT_0.4.1.md`.
+
+## Invariant (cíl po cash PROVEN)
 
 ```text
-čip + finanční záloha/vratka = jedna DB transakce
+čip + hotovostní záloha/vratka + pokladní doklad = jedna DB transakce
 ```
 
-Pořadí v JLL:
+## Runtime 0.4.1
 
-1. LAB guard + lock strávníka
-2. `load_chip_financial_config` (`CenaZaPrvniCip`)
-3. pokud deposit > 0: `payments.post` + `zapisplatbu` typ `C`, `mesic=0`
-4. chip assign/return (cipy / histcipu / stravnik.cip)
-5. chip audit `insert_udalost`
-6. COMMIT
+| Záloha | Chování |
+| --- | --- |
+| `0` | nefinanční assign/return PROVEN |
+| `>0` | fail-closed před finance i chip write |
 
-Finance fail → žádný chip write. Chip fail po finance → rollback včetně `penden`.
+## Proč ne banka
 
-## Konfigurace
-
-```text
-public.parametry BACKUP.CenaZaPrvniCip
-```
-
-`deposit=0` → čistě nefinanční path (0.3.1).
-
-## Způsob platby pro čip
-
-Legacy UI defaultuje hotovost (`Edit1=1`) včetně dokladu/EET.
-
-JLL **nepoužívá hotovost**:
-
-1. `ImplicitTypPlatby` z BACKUP, pokud ≠ `1`
-2. jinak banka `4`
-
-`cash_payment` zůstává BLOCKED.
-
-## Poznámky
-
-- `TextZalohazaCip` / `TextVracenozaCip` z BACKUP
-- účet default `STRAV`
-- typ služby = defaultní strava (`Oběd` nebo první `typsluzby=strava`)
-- `GenerujUdalost_Penden` legacy jen pro typ `P`; u `C` stačí chip audit
+Legacy `VyberzaCip` / `VratzaCip` nastavuje `typplatby=1` (hotově).
+JLL nesmí přemapovat hotovost na banku jen proto, že cash contract chybí.

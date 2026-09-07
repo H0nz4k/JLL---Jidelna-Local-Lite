@@ -46,14 +46,14 @@ CHIP_WRITE_GATES: dict[str, WriteGate] = {
     "assign": WriteGate(
         ContractStatus.PROVEN,
         "Data.pas NajdiCip(P): INSERT/UPDATE cipy P + histcipu + stravnik.cip. "
-        "deposit=0 bez finance; deposit>0 atomicky s PaymentService.chip_deposit "
-        "(zapisplatbu typ C).",
+        "Runtime: CenaZaPrvniCip=0 bez finance; deposit>0 fail-closed "
+        "(legacy hotovostní chip contract není PROVEN).",
         "Přidělit čip",
     ),
     "return": WriteGate(
         ContractStatus.PROVEN,
         "NajdiCip(V): P→V, stravnik=0, clear cip, histcipu V. "
-        "deposit=0 bez finance; deposit>0 atomicky s chip_deposit_refund.",
+        "Runtime: jen při CenaZaPrvniCip=0; deposit>0 fail-closed.",
         "Vrátit čip",
     ),
     "block": WriteGate(
@@ -84,12 +84,14 @@ PAYMENT_WRITE_GATES: dict[str, WriteGate] = {
     "manual_payment": WriteGate(
         ContractStatus.PROVEN,
         "Platba.pas RadioButton2 (jedna služba) → ZapisPlatbu → public.zapisplatbu. "
-        "Bez NastavPriority split; bez hotovosti/EET. Sign: kladná částka do penden.",
+        "Bez NastavPriority split; bez hotovosti/EET. Sign: kladná částka do penden. "
+        "JLL předává Decimal (bez Python float).",
         "Zaúčtovat platbu",
     ),
     "cash_payment": WriteGate(
         ContractStatus.BLOCKED,
-        "Hotovost (typplatby=1) vyžaduje PrijemkaDlg / uctenky_kasy / EET side-effects.",
+        "Hotovost (typplatby=1) vyžaduje PrijemkaDlg / uctenky_kasy / číslo dokladu; "
+        "EET je historický flag. Celý cash contract není PROVEN.",
         "Platba hotově",
     ),
     "refund": WriteGate(
@@ -98,15 +100,15 @@ PAYMENT_WRITE_GATES: dict[str, WriteGate] = {
         "Vrátit přeplatek",
     ),
     "chip_deposit": WriteGate(
-        ContractStatus.PROVEN,
-        "VyberzaCip typZauctovani=3 → ZapisPlatbu typ C, mesic=0, +CenaZaPrvniCip. "
-        "JLL bez hotovostního dokladu (ImplicitTypPlatby≠1, jinak banka 4).",
+        ContractStatus.BLOCKED,
+        "Legacy VyberzaCip používá hotovost (typplatby=1) + pokladní doklad. "
+        "0.4.0 nehotovostní náhrada (banka) není paritní → fail-closed do cash PROVEN.",
         "Záloha za čip",
     ),
     "chip_deposit_refund": WriteGate(
-        ContractStatus.PROVEN,
-        "VratzaCip typZauctovani=4 → ZapisPlatbu typ C, mesic=0, -CenaZaPrvniCip. "
-        "JLL bez hotovostního dokladu.",
+        ContractStatus.BLOCKED,
+        "Legacy VratzaCip používá hotovost (typplatby=1) + pokladní doklad. "
+        "Nehrazovat bankou; fail-closed do cash PROVEN.",
         "Vratka zálohy za čip",
     ),
     "homebanking_link": WriteGate(

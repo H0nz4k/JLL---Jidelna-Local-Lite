@@ -127,31 +127,12 @@ def test_assign_pass_when_deposit_zero(lab_database: LabDatabase) -> None:
             connection.commit()
 
 
-def test_assign_deposit_positive_requires_payments_post(
+def test_assign_blocked_before_write_when_deposit_positive(
     lab_database: LabDatabase,
 ) -> None:
-    """Bez payments.post zůstává deposit>0 fail-closed před chip write."""
-
-    def limited_policy() -> SessionPolicy:
-        return SessionPolicy(
-            user_identity="LAB",
-            allowed_categories=frozenset({CATEGORY}),
-            permissions=frozenset(
-                {
-                    Permission.DINERS_VIEW,
-                    Permission.DINERS_CREATE,
-                    Permission.CHIPS_ASSIGN,
-                    Permission.CHIPS_VIEW,
-                }
-            ),
-            bypass_order_deadlines=True,
-        )
-
-    diner = DinerService(
-        lab_database.connect, _policy, _settings(lab_database)
-    ).create(
+    diner = _diner(lab_database).create(
         CreateDinerCommand(
-            jmeno="JLLTEST DEP+ NOPAY",
+            jmeno="JLLTEST DEP+ ASSIGN",
             kategorie=CATEGORY,
             actor=ACTOR,
             client_version=VERSION,
@@ -173,12 +154,9 @@ def test_assign_deposit_positive_requires_payments_post(
         ).fetchone()[0]
         _set_deposit(connection, "100")
         connection.commit()
-    chip = ChipCommandService(
-        lab_database.connect, limited_policy, _settings(lab_database)
-    )
     try:
         with pytest.raises(OrderBusinessError) as exc:
-            chip.assign(
+            _chip(lab_database).assign(
                 ChipCommand(
                     chip_code=chip_code,
                     evidcislo=diner.evidcislo,
@@ -186,7 +164,9 @@ def test_assign_deposit_positive_requires_payments_post(
                     client_version=VERSION,
                 )
             )
-        assert exc.value.code is ErrorCode.OUT_OF_SCOPE_OR_INACTIVE
+        assert exc.value.code is ErrorCode.RELATION_CONFIG_INVALID
+        assert "100,00" in str(exc.value) or "100.00" in str(exc.value)
+        assert "Hotovostní" in str(exc.value)
         with lab_database.connect() as connection:
             after = connection.execute(
                 "SELECT stav, stravnik FROM public.cipy WHERE cislo=%s",
@@ -302,12 +282,12 @@ def test_return_zero_deposit_happy_path(lab_database: LabDatabase) -> None:
         _cleanup(lab_database, diner.evidcislo, chip_code)
 
 
-def test_return_deposit_positive_requires_payments_post(
+def test_return_positive_deposit_blocked_without_mutation(
     lab_database: LabDatabase,
 ) -> None:
     diner = _diner(lab_database).create(
         CreateDinerCommand(
-            jmeno="JLLTEST RET+ NOPAY",
+            jmeno="JLLTEST RET+",
             kategorie=CATEGORY,
             actor=ACTOR,
             client_version=VERSION,
@@ -321,9 +301,9 @@ def test_return_deposit_positive_requires_payments_post(
         )
         _set_deposit(connection, "0")
         connection.commit()
-    chip_full = _chip(lab_database)
+    chip = _chip(lab_database)
     try:
-        chip_full.assign(
+        chip.assign(
             ChipCommand(
                 chip_code=chip_code,
                 evidcislo=diner.evidcislo,
@@ -338,25 +318,8 @@ def test_return_deposit_positive_requires_payments_post(
             ).fetchone()
             _set_deposit(connection, "75")
             connection.commit()
-
-        def limited_policy() -> SessionPolicy:
-            return SessionPolicy(
-                user_identity="LAB",
-                allowed_categories=frozenset({CATEGORY}),
-                permissions=frozenset(
-                    {
-                        Permission.CHIPS_RETURN,
-                        Permission.CHIPS_VIEW,
-                    }
-                ),
-                bypass_order_deadlines=True,
-            )
-
-        chip_limited = ChipCommandService(
-            lab_database.connect, limited_policy, _settings(lab_database)
-        )
         with pytest.raises(OrderBusinessError) as exc:
-            chip_limited.return_chip(
+            chip.return_chip(
                 ChipCommand(
                     chip_code=chip_code,
                     evidcislo=diner.evidcislo,
@@ -364,7 +327,8 @@ def test_return_deposit_positive_requires_payments_post(
                     client_version=VERSION,
                 )
             )
-        assert exc.value.code is ErrorCode.OUT_OF_SCOPE_OR_INACTIVE
+        assert "75,00" in str(exc.value) or "75.00" in str(exc.value)
+        assert "Hotovostní" in str(exc.value) or "hotovost" in str(exc.value).casefold()
         with lab_database.connect() as connection:
             after = connection.execute(
                 "SELECT stav, stravnik FROM public.cipy WHERE cislo=%s",
