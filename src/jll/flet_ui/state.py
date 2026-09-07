@@ -83,7 +83,7 @@ class AppState:
     payment_history_service: Any = None
     payment_service: Any = None
     route: Route = Route.DINERS
-    text_scale: TextScale = TextScale.NORMAL
+    text_scale: TextScale = TextScale.EXTRA_LARGE
     search_query: str = ""
     diner_results: list[DinerSummary] = field(default_factory=list)
     selected_evidcislo: int | None = None

@@ -65,6 +65,8 @@ COLORS: dict[str, str] = {
     "today_column_border": "#1E5A84",
     "ordered": "#D7F0DF",
     "ordered_selected": "#A9DDB8",
+    "picked": "#FFE566",
+    "picked_selected": "#F0C000",
     "subscribed": "#B7C4BE",
     "subscribed_selected": "#9AABA3",
     "non_cooking": "#E6EBEF",
@@ -101,7 +103,7 @@ ADMIN_CONTENT_WIDTH: dict[str, int] = {
     "Vzhled": 680,
 }
 
-_active_scale: TextScale = TextScale.NORMAL
+_active_scale: TextScale = TextScale.EXTRA_LARGE
 
 
 def set_active_scale(scale: TextScale) -> None:

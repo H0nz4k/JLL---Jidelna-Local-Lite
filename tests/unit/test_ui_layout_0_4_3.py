@@ -42,6 +42,17 @@ def test_diner_source_has_no_main_chip_action_row() -> None:
     assert 'chip_bit = f"Čip' in text or "Bez čipu" in text
 
 
+def test_default_app_text_scale_is_extra_large() -> None:
+    from pathlib import Path
+
+    from jll.flet_ui.state import AppState
+    from jll.flet_ui import theme
+
+    state = AppState(config_path=Path("x"), identity_path=Path("y"))
+    assert state.text_scale is theme.TextScale.EXTRA_LARGE
+    assert state.text_scale.label_cs == "130 %"
+
+
 def test_appearance_help_hides_internal_roles() -> None:
     from pathlib import Path
 
