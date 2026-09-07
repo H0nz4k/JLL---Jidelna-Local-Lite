@@ -28,7 +28,7 @@ pytestmark = pytest.mark.integration
 
 CATEGORY = "1JARO"
 ACTOR = "LABTEST:VED"
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 
 
 def _settings(database: LabDatabase) -> OrderServiceSettings:
@@ -116,11 +116,59 @@ def test_diner_create_real_db(lab_database: LabDatabase) -> None:
             assert float(row[5] or 0) == 0.0
             assert row[6]
             assert row[7]
-            obv = connection.execute(
-                "SELECT count(*) FROM public.stravobv WHERE kodstravnika = %s",
-                (result.evidcislo,),
+            year, month = connection.execute(
+                """
+                SELECT
+                  (SELECT hodnota::int FROM public.parametry
+                   WHERE lower(btrim(sekce))=lower('BACKUP')
+                     AND lower(btrim(parametr))=lower('TentoRok')),
+                  (SELECT hodnota::int FROM public.parametry
+                   WHERE lower(btrim(sekce))=lower('BACKUP')
+                     AND lower(btrim(parametr))=lower('TentoMesic'))
+                """
             ).fetchone()
-            assert int(obv[0]) >= 0
+            expected_types = {
+                str(r[0])
+                for r in connection.execute(
+                    """
+                    SELECT DISTINCT btrim(sa.typstravy)
+                    FROM public.sazby AS sa
+                    WHERE btrim(sa.kategorie) = %s
+                      AND sa.platnostod <= make_date(%s, %s, 1)
+                      AND sa.platnostdo >= make_date(%s, %s, 1) + 27
+                    """,
+                    (CATEGORY, year, month, year, month),
+                ).fetchall()
+            }
+            actual_types = {
+                str(r[0])
+                for r in connection.execute(
+                    """
+                    SELECT btrim(typstravy) FROM public.stravobv
+                    WHERE kodstravnika = %s
+                    """,
+                    (result.evidcislo,),
+                ).fetchall()
+            }
+            assert actual_types == expected_types
+            rozpis = connection.execute(
+                """
+                SELECT NULLIF(btrim(hodnota), '')
+                FROM public.parametry
+                WHERE lower(btrim(sekce)) = lower('BACKUP')
+                  AND lower(btrim(parametr)) = lower(%s)
+                """,
+                (f"RozpisVytvoren{int(month):02d}",),
+            ).fetchone()
+            if rozpis and str(rozpis[0]).upper().startswith("A") and expected_types:
+                prihlas = connection.execute(
+                    """
+                    SELECT count(*) FROM public.prihlas
+                    WHERE stravnik = %s AND rok = %s AND mesic = %s
+                    """,
+                    (result.evidcislo, year, month),
+                ).fetchone()
+                assert int(prihlas[0]) >= 1
             audit = connection.execute(
                 """
                 SELECT count(*) FROM public.udalosti
@@ -223,6 +271,68 @@ def test_diner_create_concurrency(lab_database: LabDatabase) -> None:
     assert not errors, errors
     assert len(results) == 2
     assert len(set(results)) == 2
+
+
+def test_diner_create_rollback_after_inserts(lab_database: LabDatabase, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Po skutečných insertech selže audit → transakce vrátí vše."""
+
+    from jll import diner_repository
+
+    original = diner_repository.DinerRepository.insert_audit
+
+    def _fail_audit(self, *args, **kwargs):  # noqa: ANN001
+        assert self.count_stravobv  # repo je živé
+        # ověř, že strávník už v transakci existuje
+        with self.connection.cursor() as cursor:
+            cursor.execute("SELECT count(*) FROM public.stravnik WHERE jmeno LIKE 'JLLTEST REALROLL%'")
+            assert int(cursor.fetchone()[0]) >= 1
+        return False
+
+    monkeypatch.setattr(diner_repository.DinerRepository, "insert_audit", _fail_audit)
+    service = _diner_service(lab_database)
+    with lab_database.connect() as connection:
+        before_s = connection.execute(
+            "SELECT count(*) FROM public.stravnik WHERE jmeno LIKE 'JLLTEST REALROLL%'"
+        ).fetchone()[0]
+        before_u = connection.execute(
+            "SELECT count(*) FROM public.udalosti WHERE udalost = 'Nový strávník'"
+        ).fetchone()[0]
+    with pytest.raises(OrderBusinessError) as exc:
+        service.create(
+            CreateDinerCommand(
+                jmeno="JLLTEST REALROLL",
+                kategorie=CATEGORY,
+                actor=ACTOR,
+                client_version=VERSION,
+            )
+        )
+    assert exc.value.code is ErrorCode.AUDIT_FAILED
+    with lab_database.connect() as connection:
+        after_s = connection.execute(
+            "SELECT count(*) FROM public.stravnik WHERE jmeno LIKE 'JLLTEST REALROLL%'"
+        ).fetchone()[0]
+        after_obv = connection.execute(
+            """
+            SELECT count(*) FROM public.stravobv o
+            JOIN public.stravnik s ON s.evidcislo = o.kodstravnika
+            WHERE s.jmeno LIKE 'JLLTEST REALROLL%'
+            """
+        ).fetchone()[0]
+        after_p = connection.execute(
+            """
+            SELECT count(*) FROM public.prihlas p
+            JOIN public.stravnik s ON s.evidcislo = p.stravnik
+            WHERE s.jmeno LIKE 'JLLTEST REALROLL%'
+            """
+        ).fetchone()[0]
+        after_u = connection.execute(
+            "SELECT count(*) FROM public.udalosti WHERE udalost = 'Nový strávník'"
+        ).fetchone()[0]
+    assert after_s == before_s
+    assert after_obv == 0
+    assert after_p == 0
+    assert after_u == before_u
+    monkeypatch.setattr(diner_repository.DinerRepository, "insert_audit", original)
 
 
 def test_diner_create_rollback_on_audit_fail(lab_database: LabDatabase) -> None:

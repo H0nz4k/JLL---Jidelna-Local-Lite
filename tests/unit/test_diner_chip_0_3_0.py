@@ -26,16 +26,17 @@ def test_diner_gates_proven_for_create_and_edit() -> None:
         require_proven(DINER_WRITE_GATES, "category_change")
 
 
-def test_chip_gates_matrix_0_3_0() -> None:
+def test_chip_gates_matrix_0_3_1() -> None:
     assert CHIP_WRITE_GATES["assign"].status is ContractStatus.PROVEN
+    assert CHIP_WRITE_GATES["return"].status is ContractStatus.PROVEN
     assert CHIP_WRITE_GATES["block"].status is ContractStatus.PROVEN
     assert CHIP_WRITE_GATES["lost"].status is ContractStatus.PROVEN
     assert CHIP_WRITE_GATES["unblock"].status is ContractStatus.PROVEN
-    assert CHIP_WRITE_GATES["return"].status is ContractStatus.BLOCKED
     assert CHIP_WRITE_GATES["transfer"].status is ContractStatus.BLOCKED
     require_proven(CHIP_WRITE_GATES, "assign")
+    require_proven(CHIP_WRITE_GATES, "return")
     with pytest.raises(WriteContractNotProven):
-        require_proven(CHIP_WRITE_GATES, "return")
+        require_proven(CHIP_WRITE_GATES, "transfer")
 
 
 def test_personal_edit_whitelist_excludes_sensitive_fields() -> None:

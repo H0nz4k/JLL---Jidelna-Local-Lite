@@ -12,10 +12,10 @@ from jll.write_gates import (
 
 
 def test_chip_write_gates_fail_closed_for_unproven() -> None:
-    assert CHIP_WRITE_GATES["return"].status is ContractStatus.BLOCKED
     assert CHIP_WRITE_GATES["transfer"].status is ContractStatus.BLOCKED
     with pytest.raises(WriteContractNotProven, match="bezpečnostně blokována"):
-        require_proven(CHIP_WRITE_GATES, "return")
+        require_proven(CHIP_WRITE_GATES, "transfer")
+    assert CHIP_WRITE_GATES["return"].enabled
 
 
 def test_diner_category_change_remains_partial() -> None:

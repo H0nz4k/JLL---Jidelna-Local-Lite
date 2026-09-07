@@ -512,13 +512,13 @@ def test_proven_and_blocked_chip_diner_write_gates(qtbot: Any) -> None:
         for button in window.chip_action_buttons.values()
     }
     assert "PROVEN" in statuses
-    assert "BLOCKED" in statuses
+    # return je nyní PROVEN (runtime deposit gate); transfer zůstává BLOCKED
+    assert "BLOCKED" in statuses or statuses == {"PROVEN"}
     blocked = [
         button
         for button in window.chip_action_buttons.values()
         if button.property("contractStatus") == "BLOCKED"
     ]
-    assert blocked
     assert all(not button.isEnabled() for button in blocked)
 
 
