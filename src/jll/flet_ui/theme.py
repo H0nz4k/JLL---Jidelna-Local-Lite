@@ -82,6 +82,8 @@ COLORS: dict[str, str] = {
     "today_column_border": "#1E5A84",
     "ordered": "#D7F0DF",
     "ordered_selected": "#A9DDB8",
+    # Textová zeleň ze stejné rodiny jako pozadí objednávky (čitelná na bílém).
+    "credit_positive": "#2F8A52",
     "picked": "#FFE566",
     "picked_selected": "#F0C000",
     "subscribed": "#B7C4BE",

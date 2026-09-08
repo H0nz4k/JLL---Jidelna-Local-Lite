@@ -69,6 +69,7 @@ class FletAppController:
         page.window.height = theme.WINDOW_HEIGHT
         page.window.min_width = 1100
         page.window.min_height = 700
+        page.window.maximized = True
         page.bgcolor = theme.COLORS["background"]
         page.padding = 0
         page.theme_mode = ft.ThemeMode.LIGHT

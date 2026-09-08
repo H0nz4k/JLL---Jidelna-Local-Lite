@@ -24,13 +24,41 @@ def test_text_scale_labels_are_percentages() -> None:
     theme.assert_four_roles()
 
 
-def test_chip_actions_for_status_relevance() -> None:
-    # DinersScreen methods are instance methods; call unbound via type.
-    assert DinersScreen._chip_actions_for_status(None, None) == ["assign"]
-    assert DinersScreen._chip_actions_for_status(None, "P") == ["return", "block", "lost"]
-    assert DinersScreen._chip_actions_for_status(None, "B") == ["unblock"]
-    assert DinersScreen._chip_actions_for_status(None, "Z") == ["assign"]
-    assert DinersScreen._chip_actions_for_status(None, "V") == ["assign"]
+def test_display_chip_code_prefers_assigned_cipy_over_empty_legacy() -> None:
+    from types import SimpleNamespace
+
+    from jll.flet_ui.screens.diners import DinersScreen
+    from jll.read_models import DinerChip
+
+    diner = SimpleNamespace(
+        chip_number=None,
+        chips=(
+            DinerChip(code="0000000018243940", status_code="P", status_label="Přidělen"),
+        ),
+    )
+    assert DinersScreen._display_chip_code(None, diner) == "0000000018243940"
+
+    empty = SimpleNamespace(chip_number=None, chips=())
+    assert DinersScreen._display_chip_code(None, empty) is None
+
+    legacy = SimpleNamespace(chip_number="LEGACY", chips=())
+    assert DinersScreen._display_chip_code(None, legacy) == "LEGACY"
+
+
+def test_month_grid_equal_day_columns_contract() -> None:
+    """Day columns must not size to cell glyphs (S wider than *)."""
+
+    from pathlib import Path
+
+    text = Path("src/jll/flet_ui/screens/diners.py").read_text(encoding="utf-8")
+    assert "horizontal_alignment=ft.CrossAxisAlignment.STRETCH" in text
+    assert "expand=1" in text
+    assert "clip_behavior=ft.ClipBehavior.HARD_EDGE" in text
+    # Grid Rows must not expand vertically inside scroll Column (grey block bug).
+    assert "ft.Row(header_cells, spacing=1, expand=True)" not in text
+    assert "ft.Row(cells, spacing=1, expand=True)" not in text
+    # detail_host must not Align-loose the width again
+    assert "alignment=ft.alignment.top_left" not in text.split("detail_host")[1].split("if not self.vm.can_view")[0]
 
 
 def test_diner_source_has_no_main_chip_action_row() -> None:

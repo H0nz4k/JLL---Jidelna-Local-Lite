@@ -6,6 +6,32 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.5.3] – 2026-09-09
+
+UX polish karty strávníka a HOME:
+
+- Karta strávníka: jméno+kredit vlevo / meta vpravo; všechna akční tlačítka
+  (Upravit, Detail čipu, Platby, Ruční odběr) na jednom řádku se stejnou výškou;
+  **Platby** jen při `payments.view` (dialog); **Zaúčtovat platbu** jen při `payments.post`;
+  zahuštěný dialog Detail čipu.
+- Kladný kredit: částka + Kč zeleně (`credit_positive`, rodina barvy objednané stravy).
+- Idle návrat na HOME: timer se resetuje při kliku/scrollu/přepnutí dne/měsíce/dialogu
+  (ne jen při klávesnici) — při práci se HOME neobjeví.
+- Flet okno se otevírá maximalizované.
+- Jídelníček: den s žlutým odběrem už neroztahuje řádek; bez textu „odebráno“ (stačí žlutá);
+  **Odhlásit** uvnitř zeleného řádku.
+- Mřížka přihlášek: stejná šířka dnů (už se neroztahuje podle „S“ / „*“);
+  detail panel stretch + `expand=1` + stejná šířka rámečku u všech buněk.
+- Hlavička strávníka: „Bez čipu“ bere i aktivní čip z `public.cipy`, ne jen legacy `stravnik.cip`.
+- HOME: provozovna · stanice vlevo, datum vpravo (tučně černě);
+  počty porcí tučně; **Celkem** vlevo / **N porcí** vpravo.
+- Seznam strávníků: při prázdném hledání je modrý fokus ve vyhledávání (ne na 1. jméně);
+  šipka dolů přesune fokus na první řádek, šipka nahoru zpět do hledání.
+
+### Changed
+
+- Canonical verze `0.5.3`.
+
 ## [0.5.2] – 2026-09-08
 
 Editable four-style typography:

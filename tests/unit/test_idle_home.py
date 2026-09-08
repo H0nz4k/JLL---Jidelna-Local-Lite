@@ -74,3 +74,27 @@ def test_home_without_diner_never_fires() -> None:
     ctrl.diner_open = False
     clock.advance(120)
     assert ctrl.should_return_home() is False
+
+
+def test_credit_positive_color_matches_ordered_family() -> None:
+    from jll.flet_ui import theme
+
+    assert theme.COLORS["credit_positive"] == "#2F8A52"
+    assert theme.COLORS["ordered"] == "#D7F0DF"
+
+
+def test_window_maximized_default_in_app_source() -> None:
+    from pathlib import Path
+
+    text = Path("src/jll/flet_ui/app.py").read_text(encoding="utf-8")
+    assert "page.window.maximized = True" in text
+
+
+def test_diner_idle_notes_day_and_month_activity() -> None:
+    from pathlib import Path
+
+    text = Path("src/jll/flet_ui/screens/diners.py").read_text(encoding="utf-8")
+    assert "def _pick_day" in text
+    assert text.count("self.note_activity()") >= 8
+    assert "on_tap_down=lambda _e: self.note_activity()" in text
+    assert "on_scroll=lambda _e: self.note_activity()" in text

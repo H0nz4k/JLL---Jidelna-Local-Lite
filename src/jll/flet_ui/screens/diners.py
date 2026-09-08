@@ -26,6 +26,21 @@ from ..viewmodels.diners import DinersViewModel
 
 _SEARCH_HINT = "Hledat jméno / ev. číslo / čip…"
 _HOME_REFRESH_SECONDS = 60
+# List keyboard focus: -1 = search field, 0..n-1 = list row.
+_SEARCH_FOCUS = -1
+
+
+def next_list_focus(focus: int, delta: int, count: int) -> int:
+    """Keyboard focus in diner list: search (−1) ↔ rows."""
+
+    if count <= 0:
+        return _SEARCH_FOCUS
+    if focus < 0:
+        return 0 if delta > 0 else _SEARCH_FOCUS
+    nxt = focus + delta
+    if nxt < 0:
+        return _SEARCH_FOCUS
+    return min(count - 1, nxt)
 
 
 class DinersScreen:
@@ -35,7 +50,7 @@ class DinersScreen:
         self.vm = DinersViewModel(state)
         self._day: DinerDay | None = None
         self._results: list = []
-        self._focus_index = 0
+        self._focus_index = _SEARCH_FOCUS
         self._home: HomeTodayOverview | None = None
         self._home_error: str | None = None
         self._home_visible = True
@@ -54,11 +69,26 @@ class DinersScreen:
             on_submit=self._on_search_submit,
             text_size=theme.field_text_size(),
             content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
-            border_color=theme.COLORS["block_border"],
+            border_color=theme.COLORS["accent"],
             focused_border_color=theme.COLORS["accent"],
+            border_width=2,
         )
-        self.list_view = ft.ListView(expand=True, spacing=2, padding=0)
-        self.detail = ft.Column(expand=True, spacing=theme.SPACING["sm"], scroll=None)
+        self.list_view = ft.ListView(
+            expand=True,
+            spacing=2,
+            padding=0,
+            on_scroll=lambda _e: self.note_activity(),
+        )
+        self.detail = ft.Column(
+            expand=True,
+            spacing=theme.SPACING["sm"],
+            scroll=ft.ScrollMode.AUTO,
+            # Stretch children to panel width so month-grid day columns share
+            # space equally (expand=1). Without this, Rows size to text ("S"
+            # wider than "*") and the grid looks stretched between days.
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            on_scroll=lambda _e: self.note_activity(),
+        )
         self.page.on_keyboard_event = self._on_page_key
         self.root = self._build()
         self._show_home()
@@ -67,7 +97,13 @@ class DinersScreen:
         self._start_idle_watch()
 
     def control(self) -> ft.Control:
-        return self.root
+        # Tap/drag na workspace resetuje idle timer (klávesnice už přes on_keyboard).
+        return ft.GestureDetector(
+            content=self.root,
+            on_tap_down=lambda _e: self.note_activity(),
+            on_pan_start=lambda _e: self.note_activity(),
+            expand=True,
+        )
 
     def dispose(self) -> None:
         self._home_refresh_stop.set()
@@ -331,7 +367,8 @@ class DinersScreen:
             expand=True,
             bgcolor=theme.COLORS["background"],
             padding=ft.padding.only(left=theme.SPACING["sm"]),
-            alignment=ft.alignment.top_left,
+            # No alignment: Align would pass loose width and day columns
+            # would size to cell text again.
         )
         if not self.vm.can_view():
             return empty_state(
@@ -352,7 +389,7 @@ class DinersScreen:
         self._results = list(results)
         self.list_view.controls.clear()
         if not self._results:
-            self._focus_index = 0
+            self._focus_index = _SEARCH_FOCUS
             self.list_view.controls.append(
                 theme.text(
                     "Žádní strávníci v povolených kategoriích.",
@@ -360,6 +397,7 @@ class DinersScreen:
                     color=theme.COLORS["text_secondary"],
                 )
             )
+            self._apply_list_focus_chrome()
             return
 
         if prefer_evid is not None:
@@ -368,11 +406,24 @@ class DinersScreen:
                     self._focus_index = idx
                     break
             else:
-                self._focus_index = 0
+                self._focus_index = _SEARCH_FOCUS
         else:
-            self._focus_index = 0
+            # Prázdné hledání → fokus ve vyhledávání; po filtru → 1. shoda.
+            query = (self.search.value or "").strip()
+            self._focus_index = _SEARCH_FOCUS if not query else 0
 
         self._render_list_rows()
+        self._apply_list_focus_chrome()
+
+    def _apply_list_focus_chrome(self) -> None:
+        """Modrý rámeček: vyhledávání (−1) nebo vybraný řádek seznamu."""
+
+        in_search = self._focus_index < 0
+        accent = theme.COLORS["accent"]
+        muted = theme.COLORS["block_border"]
+        self.search.border_color = accent if in_search else muted
+        self.search.focused_border_color = accent if in_search else muted
+        self.search.border_width = 2 if in_search else 1
 
     def _render_list_rows(self) -> None:
         self.list_view.controls.clear()
@@ -407,18 +458,28 @@ class DinersScreen:
             )
 
     def _move_focus(self, delta: int) -> None:
-        if not self._results:
+        if not self._results and delta != 0:
+            self._focus_index = _SEARCH_FOCUS
+            self._apply_list_focus_chrome()
+            self.page.update()
+            self.focus_search()
             return
-        self._focus_index = max(
-            0, min(len(self._results) - 1, self._focus_index + delta)
+        self._focus_index = next_list_focus(
+            self._focus_index, delta, len(self._results)
         )
         self._render_list_rows()
+        self._apply_list_focus_chrome()
         self.page.update()
         self.focus_search()
 
     def _confirm_focused(self) -> None:
         if not self._results:
             return
+        if self._focus_index < 0:
+            # Enter ve vyhledávání s filtrem → otevři první shodu.
+            if not (self.search.value or "").strip():
+                return
+            self._focus_index = 0
         idx = max(0, min(self._focus_index, len(self._results) - 1))
         self._open(self._results[idx].evidcislo)
 
@@ -487,116 +548,177 @@ class DinersScreen:
 
         credit_value = diner.available_credit
         credit_text = self.vm.format_credit(credit_value)
-        credit_color = (
-            theme.COLORS["danger"]
-            if credit_value < 0
-            else theme.COLORS["text_primary"]
+        if credit_value < 0:
+            credit_color = theme.COLORS["danger"]
+        elif credit_value > 0:
+            credit_color = theme.COLORS["credit_positive"]
+        else:
+            credit_color = theme.COLORS["text_primary"]
+        chip_code = self._display_chip_code(diner)
+        chip_bit = f"Čip {chip_code}" if chip_code else "Bez čipu"
+        btn_h = int(theme.scaled(34))
+        _btn_pad = theme.button_style(
+            padding=ft.padding.symmetric(horizontal=12, vertical=6)
         )
-        chip_bit = f"Čip {diner.chip_number}" if diner.chip_number else "Bez čipu"
-        row1 = ft.Row(
+        payments_view = self.state.payments_view_state()
+        diner_actions: list[ft.Control] = [
+            ft.OutlinedButton(
+                "Upravit",
+                disabled=not edit.allowed,
+                tooltip=disabled_hint(edit) or None,
+                style=_btn_pad,
+                height=btn_h,
+                on_click=lambda _e: self._open_edit_dialog(),
+            ),
+            ft.OutlinedButton(
+                "Detail čipu",
+                disabled=not chip_view.allowed,
+                tooltip=disabled_hint(chip_view) or "Náhled čipu",
+                style=_btn_pad,
+                height=btn_h,
+                on_click=lambda _e: self._open_chip_detail(),
+            ),
+        ]
+        if payments_view.allowed:
+            diner_actions.append(
+                ft.OutlinedButton(
+                    "Platby",
+                    style=_btn_pad,
+                    height=btn_h,
+                    on_click=lambda _e: self._open_payments_list(diner.evidcislo),
+                )
+            )
+        diner_actions.append(
+            ft.FilledButton(
+                "Ruční odběr",
+                style=_btn_pad,
+                height=btn_h,
+                on_click=lambda _e: self._manual_pickup(),
+            )
+        )
+        # Řádek 1: jméno + kredit vlevo, meta (třída/ev/čip) vpravo.
+        # Bez expand na potomcích – STRETCH + SPACE_BETWEEN stačí a ve
+        # scroll Column expand=True rozbíjí výšku (šedý „prázdný“ blok).
+        identity_row = ft.Row(
             [
-                theme.text(
-                    diner.name,
-                    theme.TextRole.PRIMARY,
-                    overflow=ft.TextOverflow.ELLIPSIS,
-                    max_lines=1,
-                ),
-                ft.Text(
-                    spans=[
-                        ft.TextSpan(
-                            "Kredit ",
-                            theme.role_style(
-                                theme.TextRole.META,
-                                color=theme.COLORS["text_secondary"],
-                            ),
+                ft.Row(
+                    [
+                        theme.text(
+                            diner.name,
+                            theme.TextRole.PRIMARY,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                            max_lines=1,
                         ),
-                        ft.TextSpan(
-                            credit_text,
-                            theme.role_style(
-                                theme.TextRole.PRIMARY, color=credit_color
-                            ),
+                        ft.Text(
+                            spans=[
+                                ft.TextSpan(
+                                    "Kredit ",
+                                    theme.role_style(
+                                        theme.TextRole.META,
+                                        color=theme.COLORS["text_secondary"],
+                                    ),
+                                ),
+                                ft.TextSpan(
+                                    credit_text,
+                                    theme.role_style(
+                                        theme.TextRole.PRIMARY, color=credit_color
+                                    ),
+                                ),
+                            ],
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                            max_lines=1,
                         ),
                     ],
+                    spacing=theme.SPACING["md"],
+                    tight=True,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                theme.text(
+                    f"{diner.class_name or diner.category} · ev. {diner.evidcislo} · {chip_bit}",
+                    theme.TextRole.BODY,
+                    color=theme.COLORS["text_secondary"],
                     overflow=ft.TextOverflow.ELLIPSIS,
                     max_lines=1,
+                    text_align=ft.TextAlign.RIGHT,
                 ),
             ],
-            spacing=theme.SPACING["xl"],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            tight=True,
-            wrap=True,
         )
-        row2 = theme.text(
-            f"{diner.class_name or diner.category} · ev. {diner.evidcislo} · {chip_bit}",
-            theme.TextRole.BODY,
-            color=theme.COLORS["text_secondary"],
-            overflow=ft.TextOverflow.ELLIPSIS,
-            max_lines=2,
-        )
-        _btn_pad = theme.button_style(
-            padding=ft.padding.symmetric(horizontal=12, vertical=4)
-        )
-        row3 = ft.Row(
+        # Řádek 2: měsíce vlevo, všechna akční tlačítka stejné výšky vpravo.
+        actions_row = ft.Row(
             [
-                ft.OutlinedButton(
-                    "Upravit",
-                    disabled=not edit.allowed,
-                    tooltip=disabled_hint(edit) or None,
-                    style=_btn_pad,
-                    on_click=lambda _e: self._open_edit_dialog(),
+                ft.Row(
+                    [
+                        self._month_switcher(day),
+                        theme.text(
+                            f"Přihlášky · {self.vm.format_month_year(day.target_date)}",
+                            theme.TextRole.ACTION,
+                        ),
+                    ],
+                    spacing=theme.SPACING["md"],
+                    tight=True,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                ft.OutlinedButton(
-                    "Detail čipu",
-                    disabled=not chip_view.allowed,
-                    tooltip=disabled_hint(chip_view) or "Náhled čipu",
-                    style=_btn_pad,
-                    on_click=lambda _e: self._open_chip_detail(),
-                ),
-                ft.FilledButton(
-                    "Ruční odběr",
-                    style=_btn_pad,
-                    on_click=lambda _e: self._manual_pickup(),
+                ft.Row(
+                    diner_actions,
+                    spacing=theme.SPACING["xs"],
+                    tight=True,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
             ],
-            spacing=theme.SPACING["xs"],
-            tight=True,
-            wrap=True,
-        )
-        header = ft.Column(
-            [row1, row2, row3],
-            spacing=theme.SPACING["xs"],
-            tight=True,
-        )
-        month_row = ft.Row(
-            [
-                self._month_switcher(day),
-                theme.text(
-                    f"Přihlášky · {self.vm.format_month_year(day.target_date)}",
-                    theme.TextRole.ACTION,
-                ),
-            ],
-            spacing=theme.SPACING["md"],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
         self.detail.controls = [
-            header,
-            self._payments_panel(diner.evidcislo),
-            month_row,
+            identity_row,
+            actions_row,
             self._month_grid(day),
             self._menu_panel(day),
         ]
         self.page.update()
 
-    def _payments_panel(self, evidcislo: int) -> ft.Control:
+    def _open_payments_list(self, evidcislo: int) -> None:
+        self.note_activity()
         view = self.state.payments_view_state()
-        post = self.state.payments_post_state()
         if not view.allowed:
-            return ft.Container(height=0)
+            message_dialog(
+                self.page, title="Platby", body=disabled_hint(view) or ""
+            )
+            return
+        post = self.state.payments_post_state()
+        dialog_holder: dict[str, ft.AlertDialog | None] = {"dialog": None}
+
+        def _close(_e=None) -> None:
+            dialog = dialog_holder["dialog"]
+            if dialog is None:
+                return
+            dialog.open = False
+            self.page.update()
+
+        def _open_detail(penden_id: int) -> None:
+            _close()
+            self._payment_detail(penden_id)
+
+        def _open_post(_e=None) -> None:
+            if not post.allowed:
+                return
+            _close()
+            self._open_post_payment()
+
         rows: list[ft.Control] = []
         history = self.state.payment_history_service
-        if history is not None:
+        if history is None:
+            rows.append(
+                theme.text(
+                    "Služba historie plateb není dostupná.",
+                    theme.TextRole.BODY,
+                    color=theme.COLORS["text_secondary"],
+                )
+            )
+        else:
             try:
-                page = history.list_for_diner(evidcislo, limit=8, offset=0)
+                page = history.list_for_diner(evidcislo, limit=20, offset=0)
                 for item in page.items:
                     amount = self.vm.format_credit(item.amount)
                     when = item.booked_on.strftime("%d.%m.%Y")
@@ -611,9 +733,9 @@ class DinersScreen:
                         ft.TextButton(
                             f"{when}  {clock}   {sign}{amount}   {label}".strip(),
                             style=theme.button_style(
-                                padding=ft.padding.symmetric(horizontal=0, vertical=0)
+                                padding=ft.padding.symmetric(horizontal=0, vertical=2)
                             ),
-                            on_click=lambda _e, pid=item.id: self._payment_detail(pid),
+                            on_click=lambda _e, pid=item.id: _open_detail(pid),
                         )
                     )
                 if not rows:
@@ -632,26 +754,38 @@ class DinersScreen:
                         color=theme.COLORS["danger"],
                     )
                 )
-        return ft.Column(
-            [
-                ft.Row(
-                    [
-                        theme.text("Platby", theme.TextRole.ACTION),
-                        ft.TextButton(
-                            "Zaúčtovat platbu",
-                            style=theme.button_style(),
-                            disabled=not post.allowed,
-                            tooltip=disabled_hint(post) or None,
-                            on_click=lambda _e: self._open_post_payment(),
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
-                *rows,
-            ],
-            spacing=2,
-            tight=True,
+
+        actions: list[ft.Control] = []
+        if post.allowed:
+            actions.append(
+                ft.FilledButton(
+                    "Zaúčtovat platbu",
+                    style=theme.button_style(),
+                    on_click=_open_post,
+                )
+            )
+        actions.append(
+            ft.TextButton("Zavřít", style=theme.button_style(), on_click=_close)
         )
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=theme.text("Platby", theme.TextRole.PRIMARY),
+            content=ft.Column(
+                rows,
+                tight=True,
+                spacing=theme.SPACING["xs"],
+                width=440,
+                height=320,
+                scroll=ft.ScrollMode.AUTO,
+            ),
+            actions=actions,
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        dialog_holder["dialog"] = dialog
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
 
     def _payment_detail(self, penden_id: int) -> None:
         service = self.state.payment_history_service
@@ -821,6 +955,7 @@ class DinersScreen:
         active_is_future = (
             day.target_date.year == future.year and day.target_date.month == future.month
         )
+        chip_h = int(theme.scaled(34))
 
         def _btn(option, *, viewing: bool, future_month: bool) -> ft.Control:
             # Zvýrazni měsíc, na který lze přepnout; aktuálně zobrazený je tlumený.
@@ -832,7 +967,9 @@ class DinersScreen:
                     color="#FFFFFF",
                 ),
                 bgcolor=bg,
-                padding=ft.padding.symmetric(horizontal=14, vertical=6),
+                height=chip_h,
+                padding=ft.padding.symmetric(horizontal=14, vertical=0),
+                alignment=ft.alignment.center,
                 border_radius=20,
                 ink=not viewing,
                 on_click=(
@@ -851,9 +988,11 @@ class DinersScreen:
             ],
             spacing=theme.SPACING["sm"],
             tight=True,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
 
     def _switch_month(self, future: bool) -> None:
+        self.note_activity()
         try:
             refreshed = self.vm.switch_month(future=future)
         except Exception as exc:
@@ -871,10 +1010,45 @@ class DinersScreen:
             return theme.text("Žádná data přihlášek.", theme.TextRole.META)
         label_w = int(theme.scaled(76))
         cell_h = theme.scaled(28)
-        today_h = theme.scaled(32)
+        # Same border width on every day cell so selection/today never
+        # changes column geometry (1 vs 2 px used to nudge widths).
+        border_w = 2
+        transparent = "#00000000"
         actual_today = day.server_now.date()
         selected_day = day.target_date.day
         viewing_actual_today = day.target_date == actual_today
+
+        def _day_mark(value: str, *, color: str | None = None) -> ft.Control:
+            return theme.text(
+                value,
+                theme.TextRole.META,
+                color=color,
+                text_align=ft.TextAlign.CENTER,
+                max_lines=1,
+                overflow=ft.TextOverflow.CLIP,
+                no_wrap=True,
+            )
+
+        def _day_col(
+            *,
+            content: ft.Control,
+            bgcolor: str | None,
+            border_color: str,
+            height: float | int | None = None,
+            on_click=None,
+            radius: int = 3,
+        ) -> ft.Container:
+            return ft.Container(
+                expand=1,
+                height=height,
+                alignment=ft.alignment.center,
+                bgcolor=bgcolor,
+                border_radius=radius,
+                border=ft.border.all(border_w, border_color),
+                clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                content=content,
+                on_click=on_click,
+            )
 
         header_cells: list[ft.Control] = [ft.Container(width=label_w)]
         for cell in rows[0].cells:
@@ -882,25 +1056,22 @@ class DinersScreen:
             is_selected_col = cell.day == selected_day and not is_today_col
             if is_today_col:
                 header_bg, header_color = theme.COLORS["accent"], "#FFFFFF"
+                header_border = theme.COLORS["today_column_border"]
             elif is_selected_col:
                 header_bg, header_color = (
                     theme.COLORS["accent_soft"],
                     theme.COLORS["text_primary"],
                 )
+                header_border = theme.COLORS["accent"]
             else:
                 header_bg, header_color = None, theme.COLORS["text_secondary"]
+                header_border = transparent
             header_cells.append(
-                ft.Container(
-                    expand=True,
-                    alignment=ft.alignment.center,
+                _day_col(
+                    content=_day_mark(str(cell.day), color=header_color),
                     bgcolor=header_bg,
-                    border_radius=4,
-                    padding=ft.padding.symmetric(vertical=2),
-                    content=theme.text(
-                        str(cell.day),
-                        theme.TextRole.META,
-                        color=header_color,
-                    ),
+                    border_color=header_border,
+                    radius=4,
                 )
             )
         grid_rows = [ft.Row(header_cells, spacing=1)]
@@ -951,20 +1122,18 @@ class DinersScreen:
                 elif is_selected_col and not is_today_col and bg is None:
                     bg = theme.COLORS["accent_soft"]
                 label = cell.state or ""
-                border = None
                 if is_today_col:
-                    border = ft.border.all(2, theme.COLORS["today_column_border"])
+                    border_color = theme.COLORS["today_column_border"]
                 elif is_selected_col:
-                    border = ft.border.all(1, theme.COLORS["accent"])
+                    border_color = theme.COLORS["accent"]
+                else:
+                    border_color = transparent
                 cells.append(
-                    ft.Container(
-                        expand=True,
-                        height=today_h if is_today_col else cell_h,
-                        alignment=ft.alignment.center,
+                    _day_col(
+                        content=_day_mark(label),
                         bgcolor=bg,
-                        border_radius=3,
-                        border=border,
-                        content=theme.text(label, theme.TextRole.META),
+                        border_color=border_color,
+                        height=cell_h,
                         on_click=lambda _e, d=cell.day: self._pick_day(d),
                     )
                 )
@@ -980,6 +1149,7 @@ class DinersScreen:
         )
 
     def _pick_day(self, day_num: int) -> None:
+        self.note_activity()
         if self._day is None:
             return
         current = self._day.target_date
@@ -1028,23 +1198,42 @@ class DinersScreen:
             else theme.COLORS["text_secondary"]
         )
 
+        # Stabilní výška – žlutá = odběr (bez textu), Odhlásit uvnitř zeleného řádku.
+        row_h = int(theme.scaled(34))
+        can_unsub = (
+            ordered is not None
+            and self.vm.can_change_orders()
+            and not picked
+        )
+
         option_controls: list[ft.Control] = []
         if not meal.options:
             option_controls.append(
-                theme.text(
-                    "Jídelníček není zveřejněn",
-                    theme.TextRole.META,
-                    color=unpublished_color,
+                ft.Container(
+                    content=theme.text(
+                        "Jídelníček není zveřejněn",
+                        theme.TextRole.META,
+                        color=unpublished_color,
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                    ),
+                    bgcolor=theme.COLORS["surface"],
+                    border=ft.border.all(1, theme.COLORS["block_border"]),
+                    padding=ft.padding.symmetric(horizontal=8, vertical=0),
+                    border_radius=4,
+                    height=row_h,
+                    alignment=ft.alignment.center_left,
+                    expand=True,
                 )
             )
         for option in meal.options:
             is_ordered = ordered == option.menu
             price = self.vm.format_money(option.price)
             unpublished = not getattr(option, "published", True)
-            dish = option.dish_name or ("Jídelníček není zveřejněn" if unpublished else "Menu")
+            dish = option.dish_name or (
+                "Jídelníček není zveřejněn" if unpublished else "Menu"
+            )
             label = f"{option.menu} · cena {price} · {dish}"
-            if is_ordered and picked:
-                label = f"{label} · odebráno"
             text_color = (
                 unpublished_color
                 if unpublished and is_meal_day
@@ -1056,7 +1245,8 @@ class DinersScreen:
                 row_bg = theme.COLORS["ordered"]
             else:
                 row_bg = theme.COLORS["surface"]
-            option_controls.append(
+
+            row_children: list[ft.Control] = [
                 ft.Container(
                     content=theme.text(
                         label,
@@ -1065,10 +1255,37 @@ class DinersScreen:
                         overflow=ft.TextOverflow.ELLIPSIS,
                         color=text_color,
                     ),
+                    expand=True,
+                    alignment=ft.alignment.center_left,
+                )
+            ]
+            if is_ordered and can_unsub:
+                row_children.append(
+                    ft.TextButton(
+                        "Odhlásit",
+                        style=theme.button_style(
+                            padding=ft.padding.symmetric(horizontal=8, vertical=0)
+                        ),
+                        on_click=lambda _e, m=meal.meal_type, menu=ordered: self._unsubscribe(
+                            m, menu
+                        ),
+                    )
+                )
+
+            option_controls.append(
+                ft.Container(
+                    content=ft.Row(
+                        row_children,
+                        spacing=theme.SPACING["xs"],
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        tight=True,
+                    ),
                     bgcolor=row_bg,
                     border=ft.border.all(1, theme.COLORS["block_border"]),
-                    padding=ft.padding.symmetric(horizontal=8, vertical=6),
+                    padding=ft.padding.symmetric(horizontal=8, vertical=0),
                     border_radius=4,
+                    height=row_h,
+                    alignment=ft.alignment.center_left,
                     expand=True,
                     on_click=(
                         None
@@ -1080,22 +1297,12 @@ class DinersScreen:
                 )
             )
 
-        unsub = ft.Container(width=0)
-        if ordered is not None and self.vm.can_change_orders() and not picked:
-            unsub = ft.TextButton(
-                "Odhlásit",
-                style=theme.button_style(
-                    padding=ft.padding.symmetric(horizontal=8, vertical=0)
-                ),
-                on_click=lambda _e, m=meal.meal_type, menu=ordered: self._unsubscribe(
-                    m, menu
-                ),
-            )
-
         return ft.Row(
             [
                 ft.Container(
                     width=72,
+                    height=row_h,
+                    alignment=ft.alignment.center_left,
                     content=theme.text(
                         meal.meal_type,
                         theme.TextRole.META,
@@ -1104,10 +1311,10 @@ class DinersScreen:
                     ),
                 ),
                 *option_controls,
-                unsub,
             ],
             spacing=theme.SPACING["xs"],
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            tight=True,
         )
 
     def _order(self, meal_type: str, menu: int) -> None:
@@ -1148,6 +1355,7 @@ class DinersScreen:
         self.focus_search()
 
     def _manual_pickup(self) -> None:
+        self.note_activity()
         if self._day is None:
             return
         service = self.state.serving_service
@@ -1328,6 +1536,7 @@ class DinersScreen:
         self.page.update()
 
     def _open_edit_dialog(self) -> None:
+        self.note_activity()
         if self._day is None:
             return
         edit = self.state.diner_edit_state()
@@ -1445,16 +1654,29 @@ class DinersScreen:
         dialog.open = True
         self.page.update()
 
+    def _display_chip_code(self, diner) -> str | None:
+        """Číslo čipu pro hlavičku: preferuj aktivní `cipy`, pak legacy `stravnik.cip`."""
+
+        for chip in diner.chips:
+            if chip.status_code == "P":
+                return chip.code
+        if diner.chip_number:
+            return diner.chip_number
+        if diner.chips:
+            return diner.chips[0].code
+        return None
+
     def _primary_chip_status(self) -> str | None:
         if self._day is None:
             return None
         diner = self._day.diner
-        if diner.chips:
+        code = self._display_chip_code(diner)
+        if diner.chips and code:
             for chip in diner.chips:
-                if diner.chip_number and chip.code == diner.chip_number:
+                if chip.code == code:
                     return chip.status_code
             return diner.chips[0].status_code
-        if diner.chip_number:
+        if code:
             return "P"
         return None
 
@@ -1470,6 +1692,7 @@ class DinersScreen:
         return ["assign"]
 
     def _open_chip_detail(self) -> None:
+        self.note_activity()
         if self._day is None:
             return
         chip_view = self.state.chip_view_state()
@@ -1490,7 +1713,7 @@ class DinersScreen:
         wanted = set(self._chip_actions_for_status(status_code))
 
         if diner.chips:
-            chip_code = diner.chip_number or diner.chips[0].code
+            chip_code = self._display_chip_code(diner) or diner.chips[0].code
             status_label = next(
                 (chip.status_label for chip in diner.chips if chip.code == chip_code),
                 diner.chips[0].status_label,
@@ -1545,7 +1768,7 @@ class DinersScreen:
                         selectable=True,
                     ),
                 ],
-                spacing=2,
+                spacing=0,
                 tight=True,
             )
 
@@ -1554,7 +1777,9 @@ class DinersScreen:
             actions.append(
                 ft.FilledButton(
                     "Přidělit čip",
-                    style=theme.button_style(),
+                    style=theme.button_style(
+                        padding=ft.padding.symmetric(horizontal=10, vertical=4)
+                    ),
                     disabled=not assign.allowed,
                     tooltip=disabled_hint(assign) or None,
                     on_click=lambda _e: self._chip_assign(),
@@ -1564,7 +1789,9 @@ class DinersScreen:
             actions.append(
                 ft.OutlinedButton(
                     "Vrátit",
-                    style=theme.button_style(),
+                    style=theme.button_style(
+                        padding=ft.padding.symmetric(horizontal=10, vertical=4)
+                    ),
                     disabled=not ret.allowed,
                     tooltip=disabled_hint(ret) or None,
                     on_click=lambda _e: self._chip_return(),
@@ -1574,7 +1801,9 @@ class DinersScreen:
             actions.append(
                 ft.OutlinedButton(
                     "Blokovat",
-                    style=theme.button_style(),
+                    style=theme.button_style(
+                        padding=ft.padding.symmetric(horizontal=10, vertical=4)
+                    ),
                     disabled=not block.allowed,
                     tooltip=disabled_hint(block) or None,
                     on_click=lambda _e: self._chip_block(),
@@ -1584,7 +1813,9 @@ class DinersScreen:
             actions.append(
                 ft.OutlinedButton(
                     "Označit jako ztracený",
-                    style=theme.button_style(),
+                    style=theme.button_style(
+                        padding=ft.padding.symmetric(horizontal=10, vertical=4)
+                    ),
                     disabled=not lost.allowed,
                     tooltip=disabled_hint(lost) or None,
                     on_click=lambda _e: self._chip_lost(),
@@ -1594,11 +1825,49 @@ class DinersScreen:
             actions.append(
                 ft.FilledButton(
                     "Odblokovat",
-                    style=theme.button_style(),
+                    style=theme.button_style(
+                        padding=ft.padding.symmetric(horizontal=10, vertical=4)
+                    ),
                     disabled=not unblock.allowed,
                     tooltip=disabled_hint(unblock) or None,
                     on_click=lambda _e: self._chip_unblock(),
                 )
+            )
+
+        history_block: ft.Control
+        if len(history_controls) <= 1:
+            history_block = ft.Column(
+                [
+                    theme.text(
+                        "Historie",
+                        theme.TextRole.META,
+                        color=theme.COLORS["text_secondary"],
+                    ),
+                    *history_controls,
+                ],
+                spacing=0,
+                tight=True,
+            )
+        else:
+            history_block = ft.Column(
+                [
+                    theme.text(
+                        "Historie",
+                        theme.TextRole.META,
+                        color=theme.COLORS["text_secondary"],
+                    ),
+                    ft.Container(
+                        content=ft.Column(
+                            history_controls,
+                            spacing=1,
+                            tight=True,
+                            scroll=ft.ScrollMode.AUTO,
+                        ),
+                        height=min(120, 18 * len(history_controls) + 8),
+                    ),
+                ],
+                spacing=0,
+                tight=True,
             )
 
         dialog = ft.AlertDialog(
@@ -1610,26 +1879,18 @@ class DinersScreen:
                         _field("Čip", chip_code),
                         _field("Stav", status_label),
                         _field("Držitel", f"{diner.name} · ev. {diner.evidcislo}"),
-                        theme.text(
-                            "Historie",
-                            theme.TextRole.META,
-                            color=theme.COLORS["text_secondary"],
+                        history_block,
+                        ft.Row(
+                            actions,
+                            spacing=theme.SPACING["xs"],
+                            wrap=True,
+                            tight=True,
                         ),
-                        ft.Container(
-                            content=ft.Column(
-                                history_controls,
-                                spacing=2,
-                                tight=True,
-                                scroll=ft.ScrollMode.AUTO,
-                            ),
-                            height=160,
-                        ),
-                        ft.Row(actions, spacing=theme.SPACING["sm"], wrap=True, tight=True),
                     ],
-                    spacing=theme.SPACING["sm"],
+                    spacing=theme.SPACING["xs"],
                     tight=True,
                 ),
-                width=560,
+                width=480,
             ),
             actions=[
                 ft.TextButton(
@@ -1638,6 +1899,7 @@ class DinersScreen:
                     on_click=lambda _e: setattr(dialog, "open", False) or self.page.update(),
                 )
             ],
+            actions_alignment=ft.MainAxisAlignment.END,
         )
         self.page.overlay.append(dialog)
         dialog.open = True
@@ -1646,15 +1908,7 @@ class DinersScreen:
     def _chip_code_for_action(self) -> str | None:
         if self._day is None:
             return None
-        diner = self._day.diner
-        if diner.chip_number:
-            return diner.chip_number
-        for chip in diner.chips:
-            if chip.status_code == "P":
-                return chip.code
-        if diner.chips:
-            return diner.chips[0].code
-        return None
+        return self._display_chip_code(self._day.diner)
 
     def _chip_assign(self) -> None:
         if self._day is None:
