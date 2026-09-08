@@ -35,6 +35,8 @@ from .read_models import (
     DinerProfile,
     DinerReportRow,
     DinerSummary,
+    HomeMealSummary,
+    HomeTodayOverview,
     LabDiagnostics,
     MealDay,
     MenuCapability,
@@ -44,6 +46,7 @@ from .read_models import (
     NormMenuSummary,
     OrderReportRow,
     PickupStatusRow,
+    workplace_display_name,
 )
 
 ConnectionFactory = Callable[
@@ -968,6 +971,185 @@ class OrderReadService:
                     )
                     for row in rows
                 ]
+
+    def load_home_today_overview(
+        self,
+        *,
+        workplace_name: str,
+        organization_name: str,
+        include_next_cooking_day: bool = True,
+    ) -> HomeTodayOverview:
+        """HOME: dnešní objednané porce (stejná definice jako sestavy).
+
+        Permission: `DINERS_VIEW`. Scope = `allowed_categories`.
+        1 transakce, 2–3 SQL statements (orders+meals; varnedny; optional next).
+        """
+
+        scope = self._scope(Permission.DINERS_VIEW)
+        workplace = workplace_display_name(workplace_name)
+        org = (organization_name or "").strip() or "—"
+
+        with self._session() as (connection, repository):
+            with connection.transaction():
+                repository.configure_read_transaction(
+                    self.settings.business_timezone,
+                    self.settings.statement_timeout_ms,
+                )
+                today_row = repository.fetchone(
+                    "SELECT clock_timestamp() AS server_now"
+                )
+                if today_row is None or not isinstance(
+                    today_row["server_now"], datetime
+                ):
+                    raise OrderBusinessError(
+                        ErrorCode.LAB_GUARD_FAILED,
+                        "Serverové datum nelze bezpečně určit.",
+                    )
+                target = today_row["server_now"].date()
+                day = sql.Identifier(DAY_COLUMNS[target.day - 1])
+                day_col = DAY_COLUMNS[target.day - 1]
+
+                order_query = sql.SQL(
+                    """
+                    WITH orders AS (
+                      SELECT btrim(p.typsluzby) AS meal_type,
+                             p.{day}::integer AS menu,
+                             count(*)::integer AS portions
+                      FROM public.prihlas AS p
+                      JOIN public.stravnik AS s ON s.evidcislo = p.stravnik
+                      WHERE p.rok = %s
+                        AND p.mesic = %s
+                        AND p.{day} ~ '^[1-9]$'
+                        AND s.kategorie = ANY(%s::varchar[])
+                        AND COALESCE(s.deleted, false) = false
+                      GROUP BY btrim(p.typsluzby), p.{day}
+                    ),
+                    meals AS (
+                      SELECT btrim(j.typstravy) AS meal_type,
+                             t.oznaceni::integer AS menu,
+                             string_agg(
+                               NULLIF(btrim(j.nazev), ''),
+                               ' • ' ORDER BY m.caststravy, j.idjidelnicku
+                             ) AS meal_name
+                      FROM public.jidelnicek AS j
+                      JOIN public.menustravy AS m
+                        ON m.id = j.idmenustravy AND m.typstravy = j.typstravy
+                      JOIN public.typstrj AS t ON t.id = m.idtypstrj
+                      WHERE j.datum = %s
+                        AND lower(btrim(j.jazyk)) = lower('česky')
+                        AND j.cislojidelnicku = 1
+                        AND btrim(t.oznaceni) ~ '^[1-9]$'
+                      GROUP BY btrim(j.typstravy), t.oznaceni
+                    ),
+                    typed AS (
+                      SELECT btrim(typstravy) AS meal_type,
+                             COALESCE(poradi, 9999) AS poradi
+                      FROM public.typstrav
+                    )
+                    SELECT o.meal_type, o.menu, o.portions,
+                           NULLIF(btrim(m.meal_name), '') AS meal_name
+                    FROM orders AS o
+                    LEFT JOIN meals AS m
+                      ON lower(m.meal_type) = lower(o.meal_type)
+                     AND m.menu = o.menu
+                    LEFT JOIN typed AS tp
+                      ON lower(tp.meal_type) = lower(o.meal_type)
+                    ORDER BY COALESCE(tp.poradi, 9999), o.meal_type, o.menu
+                    """
+                ).format(day=day)
+                order_rows = repository.fetchall(
+                    order_query,
+                    (target.year, target.month, sorted(scope), target),
+                )
+
+                cooking_row = repository.fetchone(
+                    sql.SQL(
+                        """
+                        SELECT EXISTS (
+                          SELECT 1
+                          FROM public.varnedny AS v
+                          WHERE v.rok = %s
+                            AND v.mesic = %s
+                            AND v.{day} = 'A'
+                        ) AS is_cooking
+                        """
+                    ).format(day=sql.Identifier(day_col)),
+                    (target.year, target.month),
+                )
+                is_cooking = bool(cooking_row and cooking_row["is_cooking"])
+
+                next_day: date | None = None
+                if include_next_cooking_day and not is_cooking:
+                    meal_names = [
+                        item.typstravy
+                        for item, _order in self._load_meal_types(repository)
+                    ]
+                    if meal_names:
+                        day_identifiers = sql.SQL(", ").join(
+                            sql.Identifier(column) for column in DAY_COLUMNS
+                        )
+                        months: list[date] = []
+                        cursor_month = date(target.year, target.month, 1)
+                        for _ in range(4):
+                            months.append(cursor_month)
+                            cursor_month = (
+                                date(cursor_month.year + 1, 1, 1)
+                                if cursor_month.month == 12
+                                else date(
+                                    cursor_month.year, cursor_month.month + 1, 1
+                                )
+                            )
+                        cook_rows = repository.fetchall(
+                            sql.SQL(
+                                """
+                                SELECT rok, mesic, {days}
+                                FROM public.varnedny
+                                WHERE typsluzby = ANY(%s::varchar[])
+                                  AND make_date(rok, mesic, 1) = ANY(%s::date[])
+                                """
+                            ).format(days=day_identifiers),
+                            (meal_names, months),
+                        )
+                        candidates: set[date] = set()
+                        for row in cook_rows:
+                            year = int(row["rok"])
+                            month = int(row["mesic"])
+                            for index, column in enumerate(DAY_COLUMNS, start=1):
+                                if str(row[column] or "").strip() != "A":
+                                    continue
+                                try:
+                                    candidate = date(year, month, index)
+                                except ValueError:
+                                    continue
+                                if candidate > target:
+                                    candidates.add(candidate)
+                        next_day = min(candidates) if candidates else None
+
+        meals = tuple(
+            HomeMealSummary(
+                meal_type=str(row["meal_type"]),
+                menu=int(row["menu"]),
+                portions=int(row["portions"]),
+                meal_name=(
+                    str(row["meal_name"]).strip()
+                    if row["meal_name"] is not None and str(row["meal_name"]).strip()
+                    else None
+                ),
+                menu_published=bool(
+                    row["meal_name"] is not None and str(row["meal_name"]).strip()
+                ),
+            )
+            for row in order_rows
+        )
+        return HomeTodayOverview(
+            workplace_name=workplace,
+            organization_name=org,
+            target_date=target,
+            is_cooking_day=is_cooking,
+            next_cooking_day=next_day,
+            total_portions=sum(item.portions for item in meals),
+            meals=meals,
+        )
 
     def load_diner_report(self) -> list[DinerReportRow]:
         scope = self._scope(Permission.REPORTS_VIEW)

@@ -300,6 +300,70 @@ class OrderReportRow:
 
 
 @dataclass(frozen=True, slots=True)
+class HomeMealSummary:
+    """Jeden řádek HOME: typ stravy × menu × objednané porce."""
+
+    meal_type: str
+    menu: int
+    portions: int
+    meal_name: str | None
+    menu_published: bool
+
+    @property
+    def title_line(self) -> str:
+        return f"{self.meal_type} · Menu {self.menu}"
+
+    @property
+    def name_line(self) -> str:
+        if self.meal_name:
+            return self.meal_name
+        return "Jídelníček není zveřejněn"
+
+
+@dataclass(frozen=True, slots=True)
+class HomeTodayOverview:
+    """Read model HOME / Dnešní objednávky (bez Flet závislostí)."""
+
+    workplace_name: str
+    organization_name: str
+    target_date: date
+    is_cooking_day: bool
+    next_cooking_day: date | None
+    total_portions: int
+    meals: tuple[HomeMealSummary, ...]
+    load_error: str | None = None
+
+    @property
+    def date_label(self) -> str:
+        weekday = BusinessCalendar._WEEKDAYS[self.target_date.weekday()]
+        month = BusinessCalendar._MONTHS[self.target_date.month]
+        titled = weekday[:1].upper() + weekday[1:]
+        return f"{titled} {self.target_date.day}. {month} {self.target_date.year}"
+
+
+def portions_cs(count: int) -> str:
+    """České skloňování porce/porce/porcí."""
+
+    n = abs(int(count))
+    if n == 1:
+        return "1 porce"
+    if 2 <= n <= 4:
+        return f"{n} porce"
+    return f"{n} porcí"
+
+
+def workplace_display_name(instance_id: str) -> str:
+    """Lidský název stanice z `LabConfig.instance_id` (např. JAROV → Jarov)."""
+
+    raw = (instance_id or "").strip()
+    if not raw:
+        return "—"
+    if raw.isupper() and all(ch.isalnum() or ch in "-_" for ch in raw):
+        return raw[:1] + raw[1:].lower()
+    return raw
+
+
+@dataclass(frozen=True, slots=True)
 class DinerReportRow:
     evidcislo: int
     name: str
