@@ -208,6 +208,7 @@ class FletAppController:
             on_route=self._set_route,
             on_user_switched=self._on_user_switched,
             on_diagnostics=self._diagnostics,
+            on_logo=self._go_home_logo,
         )
         self.page.controls.clear()
         self.page.add(shell)
@@ -217,7 +218,22 @@ class FletAppController:
         ):
             self._diners_screen.focus_search()
 
+    def _go_home_logo(self) -> None:
+        if self.state.route is not Route.DINERS:
+            self.state.route = Route.DINERS
+            self._render_shell()
+            return
+        screen = getattr(self, "_diners_screen", None)
+        if isinstance(screen, DinersScreen):
+            screen.go_home(clear_search=True)
+
     def _workspace(self) -> ft.Control:
+        previous = getattr(self, "_diners_screen", None)
+        if previous is not None and hasattr(previous, "dispose"):
+            try:
+                previous.dispose()
+            except Exception:
+                pass
         if self.state.route is Route.DINERS:
             self._diners_screen = DinersScreen(self.page, self.state)
             return self._diners_screen.control()

@@ -14,16 +14,18 @@ from ...chip_reader import (
     available_serial_ports,
 )
 from ...policy import Permission
-from ...read_models import DinerDay, MealDay
+from ...read_models import DinerDay, HomeTodayOverview, MealDay
 from .. import theme
 from ..components.dialogs import message_dialog
 from ..components.empty_state import empty_state
+from ..components.home_overview import build_home_overview
 from ..components.permission_state import disabled_hint
+from ..idle_home import DINER_IDLE_HOME_SECONDS, IdleHomeController
 from ..state import AppState
 from ..viewmodels.diners import DinersViewModel
 
-_READER_HINT = "čtečka nepřipojena"
 _SEARCH_HINT = "Hledat jméno / ev. číslo / čip…"
+_HOME_REFRESH_SECONDS = 60
 
 
 class DinersScreen:
@@ -34,8 +36,18 @@ class DinersScreen:
         self._day: DinerDay | None = None
         self._results: list = []
         self._focus_index = 0
+        self._home: HomeTodayOverview | None = None
+        self._home_error: str | None = None
+        self._home_visible = True
+        self._idle = IdleHomeController(timeout_seconds=DINER_IDLE_HOME_SECONDS)
+        self._idle.route_is_diners = True
+        self._home_refresh_stop = threading.Event()
+        self._idle_watch_stop = threading.Event()
         self.search = ft.TextField(
             hint_text=_SEARCH_HINT,
+            hint_style=theme.role_style(
+                theme.TextRole.META, color=theme.COLORS["text_secondary"]
+            ),
             dense=True,
             autofocus=True,
             on_change=self._on_search,
@@ -49,11 +61,53 @@ class DinersScreen:
         self.detail = ft.Column(expand=True, spacing=theme.SPACING["sm"], scroll=None)
         self.page.on_keyboard_event = self._on_page_key
         self.root = self._build()
-        self._apply_reader_hint()
+        self._show_home()
         self._start_chip_listen()
+        self._start_home_refresh()
+        self._start_idle_watch()
 
     def control(self) -> ft.Control:
         return self.root
+
+    def dispose(self) -> None:
+        self._home_refresh_stop.set()
+        self._idle_watch_stop.set()
+
+    def go_home(self, *, clear_search: bool = True) -> None:
+        """Privacy reset → HOME."""
+
+        self._day = None
+        self.state.selected_evidcislo = None
+        self._idle.set_diner_open(False)
+        self._idle.modal_open = False
+        self._idle.dirty_form = False
+        self._idle.write_in_flight = False
+        self._home_visible = True
+        if clear_search:
+            self.search.value = ""
+            self.state.search_query = ""
+            self._refresh_list(self.vm.list_initial())
+        self._show_home()
+        self.page.update()
+        self.focus_search()
+
+    def note_activity(self) -> None:
+        self._idle.note_activity()
+
+    def set_idle_suppressed(
+        self,
+        *,
+        modal: bool | None = None,
+        dirty: bool | None = None,
+        write: bool | None = None,
+    ) -> None:
+        if modal is not None:
+            self._idle.modal_open = modal
+        if dirty is not None:
+            self._idle.dirty_form = dirty
+        if write is not None:
+            self._idle.write_in_flight = write
+        self.note_activity()
 
     def focus_search(self) -> None:
         try:
@@ -96,17 +150,74 @@ class DinersScreen:
         ports = {item.device.upper() for item in available_serial_ports()}
         return bool(port) and port.upper() in ports
 
-    def _apply_reader_hint(self) -> None:
-        if self._reader_configured() and not self._reader_connected():
-            self.search.hint_text = _READER_HINT
-            self.search.hint_style = theme.role_style(
-                theme.TextRole.META, color=theme.COLORS["hint_warning"]
+    def _any_dialog_open(self) -> bool:
+        for item in self.page.overlay:
+            if getattr(item, "open", False):
+                return True
+        return False
+
+    def _show_home(self) -> None:
+        self._home_visible = True
+        self._home_error = None
+        try:
+            self._home = self.vm.load_home_overview()
+        except Exception as exc:
+            self._home = None
+            self._home_error = str(exc)
+        self.detail.controls = [
+            build_home_overview(
+                self._home,
+                error=self._home_error,
+                on_retry=lambda _e: self._show_home() or self.page.update(),
             )
-        else:
-            self.search.hint_text = _SEARCH_HINT
-            self.search.hint_style = theme.role_style(
-                theme.TextRole.META, color=theme.COLORS["text_secondary"]
-            )
+        ]
+
+    def _start_home_refresh(self) -> None:
+        stop = self._home_refresh_stop
+
+        def _loop() -> None:
+            while not stop.wait(_HOME_REFRESH_SECONDS):
+                if not self._home_visible or self._day is not None:
+                    continue
+                try:
+                    overview = self.vm.load_home_overview()
+
+                    def _apply(o=overview) -> None:
+                        if self._day is not None or not self._home_visible:
+                            return
+                        self._home = o
+                        self._home_error = None
+                        self.detail.controls = [
+                            build_home_overview(
+                                self._home,
+                                error=None,
+                                on_retry=lambda _e: self._show_home()
+                                or self.page.update(),
+                            )
+                        ]
+                        self.page.update()
+
+                    self.page.run_thread(_apply)
+                except Exception:
+                    continue
+
+        threading.Thread(target=_loop, name="jll-home-refresh", daemon=True).start()
+
+    def _start_idle_watch(self) -> None:
+        stop = self._idle_watch_stop
+
+        def _loop() -> None:
+            while not stop.wait(2.0):
+                self._idle.modal_open = self._any_dialog_open()
+                if self._idle.should_return_home():
+
+                    def _go() -> None:
+                        if self._idle.should_return_home():
+                            self.go_home(clear_search=True)
+
+                    self.page.run_thread(_go)
+
+        threading.Thread(target=_loop, name="jll-diner-idle", daemon=True).start()
 
     def _start_chip_listen(self) -> None:
         self.state.stop_chip_listen()
@@ -177,7 +288,6 @@ class DinersScreen:
             ft.Column(
                 [
                     self.search,
-                    theme.text("Strávníci", theme.TextRole.ACTION),
                     self.list_view,
                 ],
                 expand=True,
@@ -186,7 +296,6 @@ class DinersScreen:
             expand=False,
         )
         list_panel.width = theme.LIST_WIDTH
-        # Detail je workspace: bez silného bordered expand panelu (empty state).
         detail_host = ft.Container(
             content=self.detail,
             expand=True,
@@ -199,21 +308,7 @@ class DinersScreen:
                 "Strávníci",
                 "Nemáte oprávnění zobrazit strávníky.",
             )
-        self.detail.controls = [
-            ft.Container(
-                content=empty_state(
-                    "Vyberte strávníka",
-                    "Hledejte vlevo a otevřete kartu.",
-                ),
-                padding=theme.SPACING["md"],
-                bgcolor=theme.COLORS["surface"],
-                border=ft.border.all(
-                    theme.CONTENT_BORDER_WIDTH, theme.COLORS["border"]
-                ),
-                border_radius=6,
-                width=420,
-            )
-        ]
+        self.detail.controls = []
         root = ft.Row(
             [list_panel, detail_host],
             expand=True,
@@ -298,26 +393,55 @@ class DinersScreen:
         self._open(self._results[idx].evidcislo)
 
     def _on_search(self, e: ft.ControlEvent) -> None:
+        self.note_activity()
         results = self.vm.search(e.control.value or "")
         self._refresh_list(results)
         self.page.update()
 
     def _on_search_submit(self, _e: ft.ControlEvent) -> None:
+        self.note_activity()
         self._confirm_focused()
 
     def _on_page_key(self, e: ft.KeyboardEvent) -> None:
         key = (e.key or "").casefold().replace(" ", "")
+        self.note_activity()
+        if key in {"escape", "esc"}:
+            self._handle_escape()
+            return
         if key in {"arrowdown", "down"}:
             self._move_focus(1)
         elif key in {"arrowup", "up"}:
             self._move_focus(-1)
 
+    def _handle_escape(self) -> None:
+        # 1) otevřený dialog → zavři poslední
+        for item in reversed(list(self.page.overlay)):
+            if getattr(item, "open", False):
+                item.open = False
+                self._idle.modal_open = False
+                self._idle.dirty_form = False
+                self.page.update()
+                return
+        # 2) diner detail → HOME
+        if self._day is not None:
+            self.go_home(clear_search=True)
+            return
+        # 3) search / highlight → clear → HOME
+        if (self.search.value or "").strip() or self.state.selected_evidcislo is not None:
+            self.go_home(clear_search=True)
+            return
+        # 4) už HOME → no-op
+
     def _open(self, evidcislo: int) -> None:
+        self.note_activity()
         try:
             self._day = self.vm.select_diner(evidcislo)
         except Exception as exc:
             message_dialog(self.page, title="Strávník", body=str(exc))
             return
+        self.state.selected_evidcislo = evidcislo
+        self._home_visible = False
+        self._idle.set_diner_open(True)
         self._render_detail()
         query = self.search.value or ""
         self._refresh_list(self.vm.search(query), prefer_evid=evidcislo)
@@ -968,27 +1092,37 @@ class DinersScreen:
         if self._day is None or not self.vm.can_change_orders():
             message_dialog(self.page, title="Objednávka", body="Nemáte oprávnění měnit objednávky.")
             return
-        outcome = self.vm.apply_menu(
-            self._day.diner.evidcislo, self._day.target_date, meal_type, menu
-        )
+        self.set_idle_suppressed(write=True)
+        try:
+            outcome = self.vm.apply_menu(
+                self._day.diner.evidcislo, self._day.target_date, meal_type, menu
+            )
+        finally:
+            self.set_idle_suppressed(write=False)
         if outcome.error is not None:
             message_dialog(self.page, title="Objednávka", body=outcome.error.user_message)
         if outcome.refreshed is not None:
             self._day = outcome.refreshed
             self._render_detail()
+        self.note_activity()
         self.focus_search()
 
     def _unsubscribe(self, meal_type: str, menu: int) -> None:
         if self._day is None:
             return
-        outcome = self.vm.unsubscribe(
-            self._day.diner.evidcislo, self._day.target_date, meal_type, menu
-        )
+        self.set_idle_suppressed(write=True)
+        try:
+            outcome = self.vm.unsubscribe(
+                self._day.diner.evidcislo, self._day.target_date, meal_type, menu
+            )
+        finally:
+            self.set_idle_suppressed(write=False)
         if outcome.error is not None:
             message_dialog(self.page, title="Odhlášení", body=outcome.error.user_message)
         if outcome.refreshed is not None:
             self._day = outcome.refreshed
             self._render_detail()
+        self.note_activity()
         self.focus_search()
 
     def _manual_pickup(self) -> None:

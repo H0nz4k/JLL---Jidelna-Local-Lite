@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import flet as ft
 
+from ...read_models import workplace_display_name
 from ...version import application_version
 from .. import theme
 from ..state import AppState
@@ -20,21 +21,21 @@ def app_shell(
     on_route,
     on_user_switched,
     on_diagnostics,
+    on_logo=None,
 ) -> ft.Control:
     subject = "—"
+    station = ""
     if state.config is not None:
         subject = state.config.site_name or state.config.site_id
+        station = workplace_display_name(state.config.instance_id)
     if state.diagnostics is not None and getattr(state.diagnostics, "subject_name", None):
         subject = state.diagnostics.subject_name
 
-    calendar = state.business_calendar
-    if calendar is not None:
-        date_line = calendar.header_label
-    else:
-        date_line = "Datum —"
-
     meta_color = theme.COLORS["text_secondary"]
-    subtitle = f"{subject}   {date_line}"
+    if station and station != "—":
+        subtitle = f"{subject} · {station}"
+    else:
+        subtitle = subject
 
     def _open_users(_e):
         dialog = build_user_switch_dialog(page, state, on_user_switched)
@@ -43,24 +44,30 @@ def app_shell(
         page.update()
 
     app_version = application_version()
+    brand_title = ft.Text(
+        spans=[
+            ft.TextSpan(
+                "JidelnaLocalLite",
+                theme.role_style(
+                    theme.TextRole.PRIMARY,
+                    color=theme.COLORS["text_primary"],
+                ),
+            ),
+            ft.TextSpan(
+                f"  v{app_version}",
+                theme.role_style(theme.TextRole.META, color=meta_color),
+            ),
+        ],
+        max_lines=1,
+        overflow=ft.TextOverflow.ELLIPSIS,
+    )
     brand = ft.Column(
         [
-            ft.Text(
-                spans=[
-                    ft.TextSpan(
-                        "JidelnaLocalLite",
-                        theme.role_style(
-                            theme.TextRole.PRIMARY,
-                            color=theme.COLORS["text_primary"],
-                        ),
-                    ),
-                    ft.TextSpan(
-                        f"  v{app_version}",
-                        theme.role_style(theme.TextRole.META, color=meta_color),
-                    ),
-                ],
-                max_lines=1,
-                overflow=ft.TextOverflow.ELLIPSIS,
+            ft.Container(
+                content=brand_title,
+                on_click=(lambda _e: on_logo()) if on_logo is not None else None,
+                ink=on_logo is not None,
+                tooltip="Domů – Strávníci" if on_logo is not None else None,
             ),
             theme.text(
                 subtitle,

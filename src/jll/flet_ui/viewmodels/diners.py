@@ -9,7 +9,7 @@ from decimal import Decimal
 
 from ...application import OrderApplicationService
 from ...policy import Permission
-from ...read_models import BusinessCalendar, DinerDay, DinerSummary
+from ...read_models import BusinessCalendar, DinerDay, DinerSummary, HomeTodayOverview
 from ...read_service import OrderReadService
 from ..state import AppState
 
@@ -225,6 +225,15 @@ class DinersViewModel:
 
     def can_change_orders(self) -> bool:
         return self.state.has_perm(Permission.ORDERS_CHANGE)
+
+    def load_home_overview(self) -> HomeTodayOverview:
+        cfg = self.state.config
+        workplace = cfg.instance_id if cfg is not None else ""
+        organization = (cfg.site_name if cfg is not None else "") or ""
+        return self.read.load_home_today_overview(
+            workplace_name=workplace,
+            organization_name=organization,
+        )
 
     def apply_menu(self, evidcislo: int, target: date, meal_type: str, menu: int):
         return self.orders.execute_selection(evidcislo, target, meal_type, menu)
