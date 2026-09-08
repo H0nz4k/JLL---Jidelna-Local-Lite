@@ -1405,3 +1405,70 @@ def test_mixed_writer_variant_change_keeps_only_one_exclusive_type(
         for typstravy in (OBED_A, OBED_B, OBED_C, OBED_D)
     ]
     assert sum(value.isdigit() for value in states) == 1, states
+
+
+@pytest.mark.integration
+def test_non_applicable_related_d_does_not_block_menu_add(
+    lab_database: LabDatabase,
+) -> None:
+    """Balcar-like: global A excludes BCD, but D has no sazby → ignore D."""
+
+    with lab_database.connect() as connection:
+        connection.execute(
+            """
+            DELETE FROM public.sazby
+            WHERE kategorie = %s AND typstravy = %s
+            """,
+            (CATEGORY, OBED_D),
+        )
+        connection.execute(
+            """
+            DELETE FROM public.prihlas
+            WHERE stravnik = %s
+              AND typsluzby = %s
+              AND rok = %s
+              AND mesic = %s
+            """,
+            (EVIDCISLO, OBED_D, TARGET.year, TARGET.month),
+        )
+
+    service(lab_database).execute(order(OBED_A))
+    assert state(lab_database, OBED_A) == "1"
+
+
+@pytest.mark.integration
+def test_applicable_related_d_missing_row_still_fails(
+    lab_database: LabDatabase,
+) -> None:
+    """If D remains applicable via sazby but prihlas D is missing → fail-closed."""
+
+    with lab_database.connect() as connection:
+        sazby = connection.execute(
+            """
+            SELECT 1
+            FROM public.sazby
+            WHERE kategorie = %s
+              AND typstravy = %s
+              AND platnostod <= %s
+              AND COALESCE(platnostdo, %s) >= %s
+            LIMIT 1
+            """,
+            (CATEGORY, OBED_D, TARGET, TARGET, TARGET),
+        ).fetchone()
+        assert sazby is not None, "Fixture must keep Oběd-D sazby for CATEGORY"
+        connection.execute(
+            """
+            DELETE FROM public.prihlas
+            WHERE stravnik = %s
+              AND typsluzby = %s
+              AND rok = %s
+              AND mesic = %s
+            """,
+            (EVIDCISLO, OBED_D, TARGET.year, TARGET.month),
+        )
+
+    err = assert_error(
+        ErrorCode.ORDER_ROW_MISSING,
+        lambda: service(lab_database).execute(order(OBED_A)),
+    )
+    assert err.context.get("types") == [OBED_D]
