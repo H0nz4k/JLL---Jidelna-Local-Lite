@@ -6,6 +6,25 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.5.2] – 2026-09-08
+
+Editable four-style typography:
+
+- přesně 4 role (PRIMARY/BODY/ACTION/META) s absolutní size + bold;
+- Administrace → Vzhled: editor velikosti/tučnosti, náhled, Obnovit/Uložit;
+- persistence `typography` v `lab.json` (backward compatible);
+- odstraněn aktivní TextScale multiplier (100/115/130/150 % UI);
+- ACTION bold = W700 (žádné W500/W600); HOME „Dnešní objednávky“ sentence case.
+
+### Added
+
+- `docs/JLL_TYPOGRAPHY_EDITABLE_0.5.2.md`
+- `jll.typography_settings`
+
+### Changed
+
+- Canonical verze `0.5.2`.
+
 ## [0.5.1] – 2026-09-08
 
 Dokončení admin a provozních UX úkolů kolem 0.5.0:
