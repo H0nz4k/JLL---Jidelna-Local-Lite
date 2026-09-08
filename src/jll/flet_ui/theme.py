@@ -1,4 +1,4 @@
-"""Flet typography and visual tokens – exactly four text roles."""
+"""Flet typography and visual tokens – exactly four editable text roles."""
 
 from __future__ import annotations
 
@@ -7,6 +7,12 @@ from enum import Enum
 from typing import Any
 
 import flet as ft
+
+from ..typography_settings import (
+    DEFAULT_TYPOGRAPHY,
+    TypographySettings,
+    typography_from_legacy_scale,
+)
 
 
 class TextRole(Enum):
@@ -25,7 +31,7 @@ class TextRole(Enum):
 
 
 class TextScale(Enum):
-    """Zvětšení textu (a odvozených výšek buněk/tlačítek přes role_size)."""
+    """Legacy scale presets (pre-editable typography). Not an active multiplier anymore."""
 
     NORMAL = 1.0
     LARGE = 1.15
@@ -39,7 +45,8 @@ class TextScale(Enum):
 
 
 @dataclass(frozen=True, slots=True)
-class RoleStyle:
+class TypographySignature:
+    font_family: str
     size: float
     weight: str
 
@@ -47,17 +54,15 @@ class RoleStyle:
 # Jedna font family pro celou Flet aplikaci (Windows desktop).
 FONT_FAMILY = "Segoe UI"
 
-BASE_ROLES: dict[TextRole, RoleStyle] = {
-    TextRole.PRIMARY: RoleStyle(22.0, "w700"),
-    TextRole.BODY: RoleStyle(15.0, "w400"),
-    TextRole.ACTION: RoleStyle(14.0, "w600"),
-    TextRole.META: RoleStyle(12.5, "w400"),
-}
+# Historical unscaled BODY size – layout `scaled()` tracks BODY relative to this.
+_HISTORICAL_BODY_BASE = 15.0
 
-_WEIGHT_TO_FLET: dict[str, ft.FontWeight] = {
-    "w400": ft.FontWeight.W_400,
-    "w600": ft.FontWeight.W_600,
-    "w700": ft.FontWeight.W_700,
+# Kept for docs/migration reference; runtime uses DEFAULT_TYPOGRAPHY / _active.
+BASE_ROLES = {
+    TextRole.PRIMARY: (22.0, True),
+    TextRole.BODY: (15.0, False),
+    TextRole.ACTION: (14.0, True),
+    TextRole.META: (12.5, False),
 }
 
 COLORS: dict[str, str] = {
@@ -112,36 +117,58 @@ ADMIN_CONTENT_WIDTH: dict[str, int] = {
     "Kategorie": 640,
     "Info": 860,
     "Čtečka": 720,
-    "Vzhled": 680,
+    "Vzhled": 760,
 }
 
-_active_scale: TextScale = TextScale.EXTRA_LARGE
+_active_typography: TypographySettings = DEFAULT_TYPOGRAPHY
+
+
+def set_typography(settings: TypographySettings) -> None:
+    """Nastaví runtime typography pro celou Flet aplikaci."""
+
+    global _active_typography
+    _active_typography = settings
+
+
+def get_typography() -> TypographySettings:
+    return _active_typography
 
 
 def set_active_scale(scale: TextScale) -> None:
-    """Nastaví aktivní velikost textu pro `role_size` / `scaled`."""
+    """Legacy: convert scale preset to absolute role sizes (no dual multiplier)."""
 
-    global _active_scale
-    _active_scale = scale
+    set_typography(typography_from_legacy_scale(scale.value))
 
 
 def get_active_scale() -> TextScale:
-    return _active_scale
+    """Best-effort reverse map for legacy callers; prefers EXTRA_LARGE default."""
+
+    body = _active_typography.body.size
+    for scale in TextScale:
+        if abs(round(15.0 * scale.value, 2) - body) < 0.05:
+            return scale
+    return TextScale.EXTRA_LARGE
+
+
+def _role_settings(role: TextRole):
+    key = role.name.lower()
+    return _active_typography.for_key(key)
 
 
 def role_size(role: TextRole, scale: TextScale | None = None) -> float:
-    active = _active_scale if scale is None else scale
-    return round(BASE_ROLES[role].size * active.value, 2)
+    if scale is not None:
+        return typography_from_legacy_scale(scale.value).for_key(role.name.lower()).size
+    return _role_settings(role).size
 
 
 def role_weight(role: TextRole) -> ft.FontWeight:
-    """Centrální weight role – komponenty nesmí volit weight ad-hoc."""
+    """Centrální weight role – bold → W700, jinak W400. Žádné W500/W600."""
 
-    return _WEIGHT_TO_FLET[BASE_ROLES[role].weight]
+    return ft.FontWeight.W_700 if _role_settings(role).bold else ft.FontWeight.W_400
 
 
 def role_weight_value(role: TextRole) -> int:
-    return {"w400": 400, "w600": 600, "w700": 700}[BASE_ROLES[role].weight]
+    return 700 if _role_settings(role).bold else 400
 
 
 def role_style(
@@ -152,9 +179,19 @@ def role_style(
 ) -> ft.TextStyle:
     """Celý typografický styl role (family + size + weight)."""
 
+    size = role_size(role, scale)
+    weight = (
+        ft.FontWeight.W_700
+        if (
+            typography_from_legacy_scale(scale.value).for_key(role.name.lower()).bold
+            if scale is not None
+            else _role_settings(role).bold
+        )
+        else ft.FontWeight.W_400
+    )
     return ft.TextStyle(
-        size=role_size(role, scale),
-        weight=role_weight(role),
+        size=size,
+        weight=weight,
         font_family=FONT_FAMILY,
         color=color,
     )
@@ -170,10 +207,11 @@ def text(
 ) -> ft.Text:
     """ft.Text s centrálním stylem role."""
 
+    style = role_style(role, color=color, scale=scale)
     return ft.Text(
         value,
-        size=role_size(role, scale),
-        weight=role_weight(role),
+        size=style.size,
+        weight=style.weight,
         font_family=FONT_FAMILY,
         color=color,
         **kwargs,
@@ -200,11 +238,42 @@ def field_label_style(*, scale: TextScale | None = None) -> ft.TextStyle:
     return role_style(TextRole.META, color=COLORS["text_secondary"], scale=scale)
 
 
-def scaled(base: float, scale: TextScale | None = None) -> float:
-    """Škáluje pevnou velikost (výška buňky, ikona, padding)."""
+def preview_style(
+    *,
+    size: float,
+    bold: bool,
+    color: str | None = None,
+) -> ft.TextStyle:
+    """Draft preview ve Vzhled editoru – size/bold z formuláře, family centrální."""
 
-    active = _active_scale if scale is None else scale
-    return round(base * active.value, 2)
+    return ft.TextStyle(
+        size=size,
+        weight=ft.FontWeight.W_700 if bold else ft.FontWeight.W_400,
+        font_family=FONT_FAMILY,
+        color=color,
+    )
+
+
+def scaled(base: float, scale: TextScale | None = None) -> float:
+    """Škáluje geometrii (buňka, padding) podle BODY vůči historickému base 15."""
+
+    if scale is not None:
+        factor = scale.value
+    else:
+        factor = role_size(TextRole.BODY) / _HISTORICAL_BODY_BASE
+    return round(base * factor, 2)
+
+
+def role_signature(role: TextRole) -> TypographySignature:
+    return TypographySignature(
+        font_family=FONT_FAMILY,
+        size=role_size(role),
+        weight=f"w{role_weight_value(role)}",
+    )
+
+
+def all_role_signatures() -> tuple[TypographySignature, ...]:
+    return tuple(role_signature(role) for role in TextRole)
 
 
 def assert_four_roles() -> tuple[str, ...]:
@@ -215,13 +284,22 @@ def assert_four_roles() -> tuple[str, ...]:
 
 
 def assert_role_weights() -> dict[str, int]:
+    """Default weights after set_typography(DEFAULT) / fresh process."""
+
     expected = {
         "PRIMARY": 700,
         "BODY": 400,
-        "ACTION": 600,
+        "ACTION": 700,
         "META": 400,
     }
     actual = {role.name: role_weight_value(role) for role in TextRole}
     if actual != expected:
         raise AssertionError(f"Neočekávané weight role: {actual}")
     return actual
+
+
+def assert_max_four_signatures() -> int:
+    count = len(set(all_role_signatures()))
+    if count > 4:
+        raise AssertionError(f"Příliš mnoho typografických signatures: {count}")
+    return count

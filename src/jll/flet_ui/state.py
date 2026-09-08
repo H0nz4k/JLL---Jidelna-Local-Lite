@@ -16,8 +16,8 @@ from ..policy import Permission
 from ..read_models import DinerSummary
 from ..sup_secret import SupSecretStore
 from ..write_gates import CHIP_WRITE_GATES, DINER_WRITE_GATES, PAYMENT_WRITE_GATES, WriteGate
+from ..typography_settings import DEFAULT_TYPOGRAPHY, TypographySettings
 from .routes import Route
-from .theme import TextScale
 
 
 class ActionBlockReason(Enum):
@@ -83,7 +83,8 @@ class AppState:
     payment_history_service: Any = None
     payment_service: Any = None
     route: Route = Route.DINERS
-    text_scale: TextScale = TextScale.EXTRA_LARGE
+    typography: TypographySettings = field(default_factory=lambda: DEFAULT_TYPOGRAPHY)
+    admin_section: str = "Uživatelé"
     search_query: str = ""
     diner_results: list[DinerSummary] = field(default_factory=list)
     selected_evidcislo: int | None = None

@@ -110,5 +110,5 @@ def app_shell(
         bgcolor=theme.COLORS["background"],
         padding=theme.SPACING["md"],
     )
-    theme.set_active_scale(state.text_scale)
+    theme.set_typography(state.typography)
     return ft.Column([header, body], expand=True, spacing=0)
