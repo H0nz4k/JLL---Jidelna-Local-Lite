@@ -333,6 +333,56 @@ class OrderRepository:
             )
         return result
 
+    def resolve_period_category(self, command: OrderCommand, diner: Diner) -> str:
+        """Periodická kategorie měsíce: unikátní prihlas.kategorie, jinak stravnik."""
+
+        rows = self._fetchall(
+            """
+            SELECT DISTINCT NULLIF(btrim(kategorie), '') AS kategorie
+            FROM public.prihlas
+            WHERE stravnik = %s
+              AND rok = %s
+              AND mesic = %s
+            """,
+            (command.evidcislo, command.datum.year, command.datum.month),
+        )
+        categories = {
+            str(row["kategorie"]) for row in rows if row["kategorie"] is not None
+        }
+        if len(categories) == 1:
+            return next(iter(categories))
+        return diner.kategorie
+
+    def filter_applicable_meal_types(
+        self,
+        *,
+        category: str,
+        target: date,
+        meal_types: Sequence[MealType],
+    ) -> dict[str, MealType]:
+        """Meal types with an active `sazby` row for category/date (read/write parity)."""
+
+        if not meal_types:
+            return {}
+        names = [item.typstravy for item in meal_types]
+        rate_rows = self._fetchall(
+            """
+            SELECT DISTINCT btrim(typstravy) AS typstravy
+            FROM public.sazby
+            WHERE kategorie = %s
+              AND typstravy = ANY(%s::varchar[])
+              AND platnostod <= %s
+              AND COALESCE(platnostdo, %s) >= %s
+            """,
+            (category, names, target, target, target),
+        )
+        applicable_names = {str(row["typstravy"]) for row in rate_rows}
+        return {
+            item.typstravy: item
+            for item in meal_types
+            if item.typstravy in applicable_names
+        }
+
     def get_category_limit(self, category: str) -> Any:
         rows = self._fetchall(
             """

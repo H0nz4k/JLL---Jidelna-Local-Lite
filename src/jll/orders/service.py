@@ -144,7 +144,10 @@ class OrderService:
                 repository.assert_ordering_open()
                 target_type = repository.get_meal_type(command.typstravy)
                 related, spolecne_codes, vyloucene_codes = self._load_relations(
-                    repository, target_type
+                    repository,
+                    target_type,
+                    command=command,
+                    diner=diner,
                 )
                 types_by_name = {
                     target_type.typstravy: target_type,
@@ -268,6 +271,9 @@ class OrderService:
         self,
         repository: OrderRepository,
         target: MealType,
+        *,
+        command: OrderCommand,
+        diner: Diner,
     ) -> tuple[dict[str, MealType], set[str], set[str]]:
         spolecne = self._relation_codes(target.spolecnes)
         vyloucene = self._relation_codes(target.vyloucenos)
@@ -277,6 +283,22 @@ class OrderService:
                 "Vztahy typu stravy jsou konfliktní.",
             )
         related = repository.get_related_types(spolecne | vyloucene)
+        if not related:
+            return {}, spolecne, vyloucene
+
+        period_category = repository.resolve_period_category(command, diner)
+        applicable_by_name = repository.filter_applicable_meal_types(
+            category=period_category,
+            target=command.datum,
+            meal_types=list(related.values()),
+        )
+        # Globální relation kódy ∩ typy skutečně platné pro period category/datum.
+        related = {
+            item.kod: item for item in applicable_by_name.values()
+        }
+        applicable_codes = set(related)
+        spolecne &= applicable_codes
+        vyloucene &= applicable_codes
         return related, spolecne, vyloucene
 
     def _assert_temporal(
