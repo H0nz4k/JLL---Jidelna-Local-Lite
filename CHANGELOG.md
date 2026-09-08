@@ -6,6 +6,24 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.4.4] – 2026-09-08
+
+Typography hardening – skutečně jen 4 textové role napříč celým Flet UI:
+
+- centrální `role_style` / `role_weight` / `text` / `button_style`;
+- font family Segoe UI;
+- AST guard proti ad-hoc size/weight;
+- výchozí zoom zůstává 130 %.
+
+### Added
+
+- `docs/JLL_TYPOGRAPHY_SYSTEM_0.4.4.md`
+- `tests/unit/test_ui_typography_contract.py`
+
+### Changed
+
+- Canonical verze `0.4.4`.
+
 ## [0.4.3] – 2026-09-08
 
 Desktop UI/UX polish (content-driven widths):
