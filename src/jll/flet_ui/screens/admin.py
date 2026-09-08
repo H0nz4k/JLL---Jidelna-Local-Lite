@@ -28,14 +28,22 @@ _USERS_PROFILE_W = 140
 
 class AdminScreen:
     def __init__(
-        self, page: ft.Page, state: AppState, *, on_text_scale, on_activity=None
+        self,
+        page: ft.Page,
+        state: AppState,
+        *,
+        on_typography_save,
+        on_activity=None,
+        initial_section: str = "Uživatelé",
     ) -> None:
         self.page = page
         self.state = state
         self.vm = AdminViewModel(state)
-        self.on_text_scale = on_text_scale
+        self.on_typography_save = on_typography_save
         self.on_activity = on_activity or (lambda: None)
-        self.section = "Uživatelé"
+        self.section = (
+            initial_section if initial_section in SECTIONS else "Uživatelé"
+        )
         self.body = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=6, tight=False)
         self.nav = ft.Column(spacing=0, tight=True)
         self._rebuild_nav()
@@ -70,7 +78,7 @@ class AdminScreen:
             spacing=theme.SPACING["sm"],
         )
         # SUP se ověřuje modalem v app.py před vstupem; tady už jen obsah.
-        self._open_section("Uživatelé")
+        self._open_section(self.section)
 
     def control(self) -> ft.Control:
         return self.root
@@ -955,33 +963,187 @@ class AdminScreen:
         self.body.controls.append(self._content_card("Oprávnění", controls))
 
     def _render_appearance(self) -> None:
-        group = ft.RadioGroup(
-            content=ft.Column(
-                [
-                    ft.Radio(
-                        value=scale.name,
-                        label=scale.label_cs,
-                        label_style=theme.role_style(theme.TextRole.BODY),
-                    )
-                    for scale in theme.TextScale
-                ],
-                tight=True,
-                spacing=2,
-            ),
-            value=self.state.text_scale.name,
-            on_change=lambda e: self.on_text_scale(theme.TextScale[e.control.value]),
+        from ...typography_settings import (
+            DEFAULT_TYPOGRAPHY,
+            ROLE_KEYS,
+            ROLE_LABELS_CS,
+            SIZE_MAX,
+            SIZE_MIN,
+            TypographyRoleSettings,
+            TypographySettings,
+            validate_role_size,
         )
-        self.body.controls.append(
-            self._content_card(
-                "Vzhled",
+
+        draft = {
+            key: self.state.typography.for_key(key) for key in ROLE_KEYS
+        }
+        size_fields: dict[str, ft.TextField] = {}
+        bold_boxes: dict[str, ft.Checkbox] = {}
+        preview_hosts: dict[str, ft.Container] = {}
+        error_hosts: dict[str, ft.Container] = {}
+        preview_samples = {
+            "primary": "Scio Kuchyně · Jarov",
+            "body": "Oběd-A · Menu 1",
+            "action": "Dnešní objednávky",
+            "meta": "Úterý 8. září 2026",
+        }
+
+        def _preview_style(key: str) -> ft.TextStyle:
+            role = draft[key]
+            return theme.preview_style(
+                size=role.size,
+                bold=role.bold,
+                color=theme.COLORS["text_primary"],
+            )
+
+        def _refresh_preview(key: str) -> None:
+            preview_hosts[key].content = ft.Text(
+                f"Náhled: {preview_samples[key]}",
+                style=_preview_style(key),
+            )
+            self.page.update()
+
+        def _parse_size(key: str) -> float | None:
+            raw = (size_fields[key].value or "").strip().replace(",", ".")
+            try:
+                return validate_role_size(float(raw))
+            except (TypeError, ValueError) as exc:
+                error_hosts[key].content = theme.text(
+                    str(exc),
+                    theme.TextRole.META,
+                    color=theme.COLORS["danger"],
+                )
+                return None
+
+        def _on_size_change(key: str) -> None:
+            self.on_activity()
+            value = _parse_size(key)
+            if value is None:
+                self.page.update()
+                return
+            error_hosts[key].content = ft.Container(height=0)
+            draft[key] = TypographyRoleSettings(value, bold_boxes[key].value is True)
+            _refresh_preview(key)
+
+        def _on_bold_change(key: str) -> None:
+            self.on_activity()
+            value = _parse_size(key)
+            if value is None:
+                value = draft[key].size
+            else:
+                error_hosts[key].content = ft.Container(height=0)
+            draft[key] = TypographyRoleSettings(value, bold_boxes[key].value is True)
+            _refresh_preview(key)
+
+        def _reset(_e=None) -> None:
+            self.on_activity()
+            for key in ROLE_KEYS:
+                role = DEFAULT_TYPOGRAPHY.for_key(key)
+                draft[key] = role
+                size_fields[key].value = f"{role.size:g}"
+                bold_boxes[key].value = role.bold
+                error_hosts[key].content = ft.Container(height=0)
+                preview_hosts[key].content = ft.Text(
+                    f"Náhled: {preview_samples[key]}",
+                    style=_preview_style(key),
+                )
+            self.page.update()
+
+        def _save(_e=None) -> None:
+            self.on_activity()
+            roles: dict[str, TypographyRoleSettings] = {}
+            ok = True
+            for key in ROLE_KEYS:
+                value = _parse_size(key)
+                if value is None:
+                    ok = False
+                    continue
+                roles[key] = TypographyRoleSettings(
+                    value, bold_boxes[key].value is True
+                )
+            if not ok:
+                self.page.update()
+                return
+            try:
+                settings = TypographySettings(**roles)
+            except ValueError as exc:
+                message_dialog(self.page, title="Vzhled", body=str(exc))
+                return
+            self.on_typography_save(settings)
+
+        rows: list[ft.Control] = [
+            theme.text("Písmo", theme.TextRole.ACTION),
+            theme.text(
+                "Upravte čtyři styly používané v celé aplikaci.",
+                theme.TextRole.META,
+                color=theme.COLORS["text_secondary"],
+            ),
+        ]
+        for key in ROLE_KEYS:
+            role = draft[key]
+            size_field = ft.TextField(
+                label="Velikost (px)",
+                value=f"{role.size:g}",
+                width=140,
+                text_size=theme.field_text_size(),
+                label_style=theme.field_label_style(),
+                on_change=lambda _e, k=key: _on_size_change(k),
+                on_blur=lambda _e, k=key: _on_size_change(k),
+            )
+            bold = ft.Checkbox(
+                label="Tučně",
+                value=role.bold,
+                label_style=theme.role_style(theme.TextRole.BODY),
+                on_change=lambda _e, k=key: _on_bold_change(k),
+            )
+            preview = ft.Container(
+                content=ft.Text(
+                    f"Náhled: {preview_samples[key]}",
+                    style=_preview_style(key),
+                )
+            )
+            err = ft.Container(height=0)
+            size_fields[key] = size_field
+            bold_boxes[key] = bold
+            preview_hosts[key] = preview
+            error_hosts[key] = err
+            rows.extend(
                 [
-                    theme.text("Velikost textu", theme.TextRole.ACTION),
-                    theme.text(
-                        "Zvolte velikost textu v celé aplikaci.",
-                        theme.TextRole.META,
-                        color=theme.COLORS["text_secondary"],
+                    theme.text(ROLE_LABELS_CS[key], theme.TextRole.ACTION),
+                    ft.Row(
+                        [
+                            size_field,
+                            theme.text(
+                                f"{SIZE_MIN:g}–{SIZE_MAX:g}",
+                                theme.TextRole.META,
+                                color=theme.COLORS["text_secondary"],
+                            ),
+                            bold,
+                        ],
+                        spacing=theme.SPACING["sm"],
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        wrap=True,
                     ),
-                    group,
+                    preview,
+                    err,
+                ]
+            )
+
+        rows.append(
+            ft.Row(
+                [
+                    ft.OutlinedButton(
+                        "Obnovit výchozí",
+                        style=theme.button_style(),
+                        on_click=_reset,
+                    ),
+                    ft.FilledButton(
+                        "Uložit",
+                        style=theme.button_style(),
+                        on_click=_save,
+                    ),
                 ],
+                spacing=theme.SPACING["sm"],
             )
         )
+        self.body.controls.append(self._content_card("Vzhled", rows))

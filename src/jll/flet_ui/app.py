@@ -26,6 +26,7 @@ from ..payment_history_service import PaymentHistoryService
 from ..payment_service import PaymentService
 from ..serving_service import ServingService
 from ..sup_secret import SupSecretStore
+from ..typography_settings import DEFAULT_TYPOGRAPHY, TypographySettings, load_typography, save_typography
 from ..version import application_version
 from . import theme
 from .components.app_shell import app_shell
@@ -297,8 +298,9 @@ class FletAppController:
             return AdminScreen(
                 self.page,
                 self.state,
-                on_text_scale=self._set_scale,
+                on_typography_save=self._save_typography,
                 on_activity=self.note_admin_activity,
+                initial_section=self.state.admin_section,
             ).control()
         return theme.text("Neznámá obrazovka", theme.TextRole.BODY)
 
@@ -309,6 +311,7 @@ class FletAppController:
             if business is not None and not business.sup_unlocked():
                 self._prompt_sup_for_admin()
                 return
+            self.state.admin_section = "Uživatelé"
         if (
             self.state.route is Route.ADMIN
             and route is not Route.ADMIN
@@ -357,6 +360,7 @@ class FletAppController:
                 return
             _close_dialog()
             self.note_admin_activity()
+            self.state.admin_section = "Uživatelé"
             self.state.route = Route.ADMIN
             self._render_shell()
 
@@ -391,9 +395,16 @@ class FletAppController:
         # Rebuild services against new policy/actor closures (same objects, methods refresh)
         self._render_shell()
 
-    def _set_scale(self, scale: theme.TextScale) -> None:
-        self.state.text_scale = scale
-        theme.set_active_scale(scale)
+    def _save_typography(self, settings: TypographySettings) -> None:
+        try:
+            save_typography(settings, self.state.config_path)
+        except Exception as exc:
+            message_dialog(self.page, title="Vzhled", body=str(exc))
+            return
+        self.state.typography = settings
+        theme.set_typography(settings)
+        self.state.admin_section = "Vzhled"
+        self.state.route = Route.ADMIN
         self._render_shell()
 
     def _diagnostics(self) -> None:
@@ -421,6 +432,14 @@ def run_app(
 ) -> None:
     configure_logging()
     state = AppState(config_path=config_path, identity_path=identity_path)
+    if config_path.is_file():
+        try:
+            state.typography = load_typography(config_path)
+        except Exception:
+            state.typography = DEFAULT_TYPOGRAPHY
+    else:
+        state.typography = DEFAULT_TYPOGRAPHY
+    theme.set_typography(state.typography)
     if config_path.is_file() and identity_path.is_file():
         try:
             state.config = load_lab_config(config_path)
