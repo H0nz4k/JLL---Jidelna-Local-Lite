@@ -1,6 +1,9 @@
 # JLL Typography System 0.4.4
 
-Stav: **IMPLEMENTOVÁNO**  
+> Superseded for editable sizes by **0.5.2** —
+> `docs/JLL_TYPOGRAPHY_EDITABLE_0.5.2.md` (absolute role sizes, no TextScale UI).
+
+Stav: **IMPLEMENTOVÁNO** (kontrakt 4 rolí); scaling/presets nahrazeny v 0.5.2.
 Scope: `src/jll/flet_ui/**` (UI only)
 
 ## Proč jen 4 role
