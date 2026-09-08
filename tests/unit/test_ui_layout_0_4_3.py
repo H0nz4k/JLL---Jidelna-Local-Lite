@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from jll.flet_ui import theme
 from jll.flet_ui.screens.diners import DinersScreen
 
@@ -42,15 +44,15 @@ def test_diner_source_has_no_main_chip_action_row() -> None:
     assert 'chip_bit = f"Čip' in text or "Bez čipu" in text
 
 
-def test_default_app_text_scale_is_extra_large() -> None:
+def test_default_app_typography_matches_0_5_1_effective() -> None:
     from pathlib import Path
 
     from jll.flet_ui.state import AppState
-    from jll.flet_ui import theme
+    from jll.typography_settings import DEFAULT_TYPOGRAPHY
 
     state = AppState(config_path=Path("x"), identity_path=Path("y"))
-    assert state.text_scale is theme.TextScale.EXTRA_LARGE
-    assert state.text_scale.label_cs == "130 %"
+    assert state.typography == DEFAULT_TYPOGRAPHY
+    assert state.typography.body.size == pytest.approx(19.5)
 
 
 def test_appearance_help_hides_internal_roles() -> None:
@@ -58,6 +60,9 @@ def test_appearance_help_hides_internal_roles() -> None:
 
     text = Path("src/jll/flet_ui/screens/admin.py").read_text(encoding="utf-8")
     assert "Role: PRIMARY" not in text
-    assert "Zvolte velikost textu v celé aplikaci." in text
+    assert "Upravte čtyři styly používané v celé aplikaci." in text
+    assert "ROLE_LABELS_CS" in text
     assert "_content_card" in text
     assert "_rebuild_nav" in text
+    assert "on_typography_save" in text
+    assert 'ft.Radio(' not in text.split("def _render_appearance")[1].split("def ")[0]
