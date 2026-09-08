@@ -6,6 +6,20 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.5.1] – 2026-09-08
+
+Dokončení admin a provozních UX úkolů kolem 0.5.0:
+
+- Administrace → Kategorie: přidání/odebrání z `public.kategor` včetně názvů;
+- přepínání uživatelů jen po SUP ověření;
+- Admin Info: podpis HanzG, průběžné hodiny vývoje, náhled CHANGELOGu;
+- admin auto-logout po 3 min nečinnosti → Strávníci/HOME;
+- HOME UI polish (layout, rám, `přidat strávníka`, titul okna `JLL`).
+
+### Changed
+
+- Canonical verze `0.5.1`.
+
 ## [0.5.0] – 2026-09-08
 
 HOME / Dnešní objednávky na obrazovce Strávníci:

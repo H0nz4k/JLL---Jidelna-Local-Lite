@@ -284,18 +284,48 @@ class DinersScreen:
         )
 
     def _build(self) -> ft.Control:
-        list_panel = self._panel(
-            ft.Column(
-                [
-                    self.search,
-                    self.list_view,
-                ],
-                expand=True,
-                spacing=theme.SPACING["sm"],
-            ),
-            expand=False,
+        create = self.state.diner_create_state()
+        list_body = ft.Column(
+            [
+                self.search,
+                ft.Container(height=theme.SPACING["md"]),
+                self.list_view,
+            ],
+            expand=True,
+            spacing=0,
+            tight=False,
         )
+        list_panel = self._panel(list_body, expand=True)
         list_panel.width = theme.LIST_WIDTH
+
+        left_blocks: list[ft.Control] = []
+        if create.allowed:
+            create_panel = self._panel(
+                ft.Container(
+                    content=ft.OutlinedButton(
+                        "přidat strávníka",
+                        style=theme.button_style(
+                            padding=ft.padding.symmetric(horizontal=14, vertical=6)
+                        ),
+                        on_click=lambda _e: self._open_create_dialog(),
+                    ),
+                    alignment=ft.alignment.center,
+                ),
+            )
+            create_panel.width = theme.LIST_WIDTH
+            left_blocks.append(create_panel)
+        left_blocks.append(list_panel)
+
+        left = ft.Container(
+            content=ft.Column(
+                left_blocks,
+                spacing=theme.SPACING["sm"],
+                expand=True,
+                tight=False,
+            ),
+            width=theme.LIST_WIDTH,
+        )
+
         detail_host = ft.Container(
             content=self.detail,
             expand=True,
@@ -310,7 +340,7 @@ class DinersScreen:
             )
         self.detail.controls = []
         root = ft.Row(
-            [list_panel, detail_host],
+            [left, detail_host],
             expand=True,
             spacing=theme.SPACING["md"],
             vertical_alignment=ft.CrossAxisAlignment.STRETCH,
@@ -454,7 +484,6 @@ class DinersScreen:
         diner = day.diner
         edit = self.state.diner_edit_state()
         chip_view = self.state.chip_view_state()
-        create = self.state.diner_create_state()
 
         credit_value = diner.available_credit
         credit_text = self.vm.format_credit(credit_value)
@@ -527,13 +556,6 @@ class DinersScreen:
                     "Ruční odběr",
                     style=_btn_pad,
                     on_click=lambda _e: self._manual_pickup(),
-                ),
-                ft.OutlinedButton(
-                    "+ Nový",
-                    disabled=not create.allowed,
-                    tooltip=disabled_hint(create) or None,
-                    style=_btn_pad,
-                    on_click=lambda _e: self._open_create_dialog(),
                 ),
             ],
             spacing=theme.SPACING["xs"],

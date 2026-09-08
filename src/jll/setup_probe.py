@@ -63,6 +63,28 @@ def derive_site_id(site_name: str) -> str:
     return cleaned[:20]
 
 
+def list_category_options(connection: psycopg.Connection) -> tuple[CategoryOption, ...]:
+    """Katalog kategorií z `public.kategor` (označení + název)."""
+
+    rows = connection.execute(
+        """
+        SELECT btrim(k.oznaceni) AS code,
+               NULLIF(btrim(k.nazev), '') AS name
+        FROM public.kategor AS k
+        WHERE NULLIF(btrim(k.oznaceni), '') IS NOT NULL
+        ORDER BY lower(btrim(k.oznaceni))
+        """
+    ).fetchall()
+    return tuple(
+        CategoryOption(
+            code=str(row[0]).strip(),
+            name=str(row[1]).strip() if row[1] else None,
+        )
+        for row in rows
+        if row[0] and str(row[0]).strip()
+    )
+
+
 def probe_lab_database(
     host: str,
     port: int,
@@ -132,23 +154,7 @@ def probe_lab_database(
             if str(row[1]).strip()
         )
 
-        category_rows = connection.execute(
-            """
-            SELECT btrim(k.oznaceni) AS code,
-                   NULLIF(btrim(k.nazev), '') AS name
-            FROM public.kategor AS k
-            WHERE NULLIF(btrim(k.oznaceni), '') IS NOT NULL
-            ORDER BY lower(btrim(k.oznaceni))
-            """
-        ).fetchall()
-    category_options = tuple(
-        CategoryOption(
-            code=str(row[0]).strip(),
-            name=str(row[1]).strip() if row[1] else None,
-        )
-        for row in category_rows
-        if row[0] and str(row[0]).strip()
-    )
+        category_options = list_category_options(connection)
     categories = tuple(item.code for item in category_options)
     if not categories:
         raise ValueError("Databáze neobsahuje volitelné kategorie.")

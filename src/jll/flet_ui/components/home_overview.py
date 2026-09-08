@@ -16,7 +16,7 @@ def build_home_overview(
     error: str | None = None,
     on_retry=None,
 ) -> ft.Control:
-    """Content-driven HOME panel (left-aligned, bez dashboard dlaždic)."""
+    """Content-driven HOME panel podle návrhu 0.5.0."""
 
     controls: list[ft.Control] = []
     if error:
@@ -48,25 +48,32 @@ def build_home_overview(
         )
         return _card(controls)
 
+    place = f"{overview.organization_name} · {overview.workplace_name}"
+    header_color = theme.COLORS["text_secondary"]
     controls.append(
-        theme.text(overview.workplace_name, theme.TextRole.PRIMARY)
+        ft.Row(
+            [
+                theme.text(
+                    place,
+                    theme.TextRole.PRIMARY,
+                    color=header_color,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                    max_lines=1,
+                ),
+                ft.Container(expand=True),
+                theme.text(
+                    overview.date_label,
+                    theme.TextRole.PRIMARY,
+                    color=header_color,
+                    max_lines=1,
+                ),
+            ],
+            spacing=theme.SPACING["md"],
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
     )
-    if overview.is_cooking_day:
-        controls.append(
-            theme.text(
-                f"{overview.date_label} · dnes se vaří",
-                theme.TextRole.META,
-                color=theme.COLORS["text_secondary"],
-            )
-        )
-    else:
-        controls.append(
-            theme.text(
-                overview.date_label,
-                theme.TextRole.META,
-                color=theme.COLORS["text_secondary"],
-            )
-        )
+
+    if not overview.is_cooking_day:
         controls.append(
             theme.text("Dnes se nevaří.", theme.TextRole.BODY)
         )
@@ -141,7 +148,9 @@ def _card(controls: list[ft.Control]) -> ft.Container:
         content=ft.Column(controls, spacing=4, tight=True, scroll=ft.ScrollMode.AUTO),
         width=HOME_CONTENT_WIDTH,
         bgcolor=theme.COLORS["surface"],
-        border=ft.border.all(theme.CONTENT_BORDER_WIDTH, theme.COLORS["border"]),
+        border=ft.border.all(
+            theme.BLOCK_BORDER_WIDTH, theme.COLORS["block_border"]
+        ),
         border_radius=6,
         padding=theme.SPACING["md"],
         alignment=ft.alignment.top_left,

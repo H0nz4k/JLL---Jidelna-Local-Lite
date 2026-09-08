@@ -27,11 +27,14 @@ _USERS_PROFILE_W = 140
 
 
 class AdminScreen:
-    def __init__(self, page: ft.Page, state: AppState, *, on_text_scale) -> None:
+    def __init__(
+        self, page: ft.Page, state: AppState, *, on_text_scale, on_activity=None
+    ) -> None:
         self.page = page
         self.state = state
         self.vm = AdminViewModel(state)
         self.on_text_scale = on_text_scale
+        self.on_activity = on_activity or (lambda: None)
         self.section = "Uživatelé"
         self.body = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=6, tight=False)
         self.nav = ft.Column(spacing=0, tight=True)
@@ -109,6 +112,7 @@ class AdminScreen:
         )
 
     def _open_section(self, name: str) -> None:
+        self.on_activity()
         self.section = name
         self._rebuild_nav()
         self.body.controls.clear()
@@ -121,21 +125,147 @@ class AdminScreen:
         elif name == "Oprávnění":
             self._render_permissions_help()
         elif name == "Kategorie":
-            cats = sorted(self.state.config.allowed_categories) if self.state.config else []
-            self.body.controls.append(
-                self._content_card(
-                    name,
-                    [
-                        theme.text("Povolené kategorie", theme.TextRole.ACTION),
-                        theme.text(", ".join(cats) or "—", theme.TextRole.BODY),
-                    ],
-                )
-            )
+            self._render_categories()
         elif name == "Info":
             self._render_info()
         elif name == "Čtečka":
             self._render_reader()
         self.page.update()
+
+    def _render_categories(self) -> None:
+        from ...setup_probe import CategoryOption
+
+        cfg = self.state.config
+        if cfg is None:
+            self.body.controls.append(
+                self._content_card(
+                    "Kategorie",
+                    [theme.text("Config není načten.", theme.TextRole.BODY)],
+                )
+            )
+            return
+
+        try:
+            options = self.vm.list_category_options()
+        except Exception as exc:
+            self.body.controls.append(
+                self._content_card("Kategorie", [empty_state("Kategorie", str(exc))])
+            )
+            return
+
+        by_code = {item.code: item for item in options}
+        selected = set(cfg.allowed_categories)
+        for code in selected:
+            by_code.setdefault(code, CategoryOption(code=code))
+
+        list_col = ft.Column(spacing=2, tight=True)
+        add_dd = ft.Dropdown(
+            label="Další kategorie z DB",
+            options=[],
+            text_size=theme.field_text_size(),
+            label_style=theme.field_label_style(),
+            expand=True,
+        )
+        add_btn = ft.FilledButton("Přidat", style=theme.button_style())
+
+        def _rebuild_list() -> None:
+            list_col.controls.clear()
+            if not selected:
+                list_col.controls.append(
+                    theme.text(
+                        "Žádná povolená kategorie.",
+                        theme.TextRole.META,
+                        color=theme.COLORS["text_secondary"],
+                    )
+                )
+                return
+            for code in sorted(selected):
+                item = by_code.get(code) or CategoryOption(code=code)
+                list_col.controls.append(
+                    ft.Row(
+                        [
+                            ft.Container(
+                                content=theme.text(item.label, theme.TextRole.BODY),
+                                expand=True,
+                            ),
+                            ft.TextButton(
+                                "Odebrat",
+                                style=theme.button_style(
+                                    padding=ft.padding.symmetric(
+                                        horizontal=8, vertical=0
+                                    )
+                                ),
+                                on_click=lambda _e, c=code: _remove(c),
+                            ),
+                        ],
+                        spacing=theme.SPACING["sm"],
+                        tight=True,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    )
+                )
+
+        def _refresh_add_dropdown() -> None:
+            available = [item for item in options if item.code not in selected]
+            add_dd.options = [
+                ft.dropdown.Option(key=item.code, text=item.label) for item in available
+            ]
+            add_dd.value = available[0].code if available else None
+            add_dd.disabled = not available
+            add_btn.disabled = not available
+
+        def _remove(code: str) -> None:
+            selected.discard(code)
+            _rebuild_list()
+            _refresh_add_dropdown()
+            self.page.update()
+
+        def _add(_e=None) -> None:
+            code = (add_dd.value or "").strip()
+            if not code or code in selected:
+                return
+            selected.add(code)
+            _rebuild_list()
+            _refresh_add_dropdown()
+            self.page.update()
+
+        def _save(_e=None) -> None:
+            try:
+                self.vm.save_allowed_categories(frozenset(selected))
+                message_dialog(
+                    self.page,
+                    title="Kategorie",
+                    body="Povolené kategorie uloženy.",
+                )
+                self._open_section("Kategorie")
+            except Exception as exc:
+                message_dialog(self.page, title="Kategorie", body=str(exc))
+
+        add_btn.on_click = _add
+        _rebuild_list()
+        _refresh_add_dropdown()
+
+        self.body.controls.append(
+            self._content_card(
+                "Kategorie",
+                [
+                    theme.text("Povolené kategorie", theme.TextRole.ACTION),
+                    theme.text(
+                        "Kódy a názvy z public.kategor. Scope platí pro celou instalaci.",
+                        theme.TextRole.META,
+                        color=theme.COLORS["text_secondary"],
+                    ),
+                    list_col,
+                    ft.Row(
+                        [add_dd, add_btn],
+                        spacing=theme.SPACING["sm"],
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    ft.FilledButton(
+                        "Uložit", style=theme.button_style(), on_click=_save
+                    ),
+                ],
+            )
+        )
 
     def _render_reader(self) -> None:
         from ...chip_reader import (
@@ -359,9 +489,25 @@ class AdminScreen:
         self.body.controls.append(self._content_card("Čtečka", controls))
 
     def _render_info(self) -> None:
+        from ...changelog_preview import load_changelog_preview
+        from ...dev_credits import AUTHOR_SIGNATURE, format_development_hours
+        from ...version import application_version
+
         cfg = self.state.config
+        hours_label = theme.text(
+            f"Autor: {AUTHOR_SIGNATURE}\n"
+            f"Verze: {application_version()}\n"
+            f"Strávený čas (odhad): {format_development_hours()}",
+            theme.TextRole.BODY,
+        )
         controls: list[ft.Control] = [
             theme.text("Info", theme.TextRole.ACTION),
+            theme.text(
+                "Vývoj",
+                theme.TextRole.META,
+                color=theme.COLORS["text_secondary"],
+            ),
+            hours_label,
             theme.text(
                 "Databáze",
                 theme.TextRole.META,
@@ -383,11 +529,38 @@ class AdminScreen:
                 theme.TextRole.BODY,
             ),
             theme.text(
-                "Audit (posledních 50)",
+                "Changelog (náhled)",
                 theme.TextRole.META,
                 color=theme.COLORS["text_secondary"],
             ),
         ]
+        entries = load_changelog_preview(limit=5)
+        if not entries:
+            controls.append(
+                theme.text(
+                    "CHANGELOG.md není dostupný.",
+                    theme.TextRole.META,
+                    color=theme.COLORS["text_secondary"],
+                )
+            )
+        else:
+            for entry in entries:
+                controls.append(theme.text(entry.title, theme.TextRole.ACTION))
+                for line in entry.summary_lines[:4]:
+                    controls.append(
+                        theme.text(
+                            f"• {line}",
+                            theme.TextRole.META,
+                            color=theme.COLORS["text_secondary"],
+                        )
+                    )
+        controls.append(
+            theme.text(
+                "Audit (posledních 50)",
+                theme.TextRole.META,
+                color=theme.COLORS["text_secondary"],
+            )
+        )
         events = self.state.identity_store.read_audit() if self.state.identity_store else []
         if not events:
             controls.append(
@@ -406,6 +579,34 @@ class AdminScreen:
                     )
                 )
         self.body.controls.append(self._content_card("Info", controls))
+
+        # Průběžná aktualizace hodin, dokud je sekce Info otevřená.
+        stop = getattr(self, "_info_hours_stop", None)
+        if stop is not None:
+            stop.set()
+        import threading
+
+        stop = threading.Event()
+        self._info_hours_stop = stop
+
+        def _tick() -> None:
+            while not stop.wait(30.0):
+                if self.section != "Info":
+                    break
+
+                def _apply() -> None:
+                    if self.section != "Info":
+                        return
+                    hours_label.value = (
+                        f"Autor: {AUTHOR_SIGNATURE}\n"
+                        f"Verze: {application_version()}\n"
+                        f"Strávený čas (odhad): {format_development_hours()}"
+                    )
+                    self.page.update()
+
+                self.page.run_thread(_apply)
+
+        threading.Thread(target=_tick, name="jll-info-hours", daemon=True).start()
 
     def _render_sup_gate(self) -> None:
         password = ft.TextField(

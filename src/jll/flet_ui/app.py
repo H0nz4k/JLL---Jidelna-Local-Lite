@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import threading
+import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -40,6 +42,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG = PROJECT_ROOT / "config" / "lab.json"
 DEFAULT_IDENTITY = PROJECT_ROOT / "config" / "users.lab.json"
 DEFAULT_LOG = PROJECT_ROOT / "logs" / "jll-flet.log"
+ADMIN_IDLE_SECONDS = 180
 
 
 def configure_logging(path: Path = DEFAULT_LOG) -> None:
@@ -60,7 +63,7 @@ class FletAppController:
     def __init__(self, page: ft.Page, state: AppState) -> None:
         self.page = page
         self.state = state
-        page.title = "JidelnaLocalLite"
+        page.title = "JLL"
         page.window.width = theme.WINDOW_WIDTH
         page.window.height = theme.WINDOW_HEIGHT
         page.window.min_width = 1100
@@ -68,6 +71,45 @@ class FletAppController:
         page.bgcolor = theme.COLORS["background"]
         page.padding = 0
         page.theme_mode = ft.ThemeMode.LIGHT
+        self._admin_last_activity = time.monotonic()
+        self._admin_idle_stop = threading.Event()
+        self._start_admin_idle_watch()
+
+    def note_admin_activity(self) -> None:
+        self._admin_last_activity = time.monotonic()
+
+    def _start_admin_idle_watch(self) -> None:
+        stop = self._admin_idle_stop
+
+        def _loop() -> None:
+            while not stop.wait(5.0):
+                if self.state.route is not Route.ADMIN:
+                    continue
+                business = self.state.business
+                if business is None or not business.sup_unlocked():
+                    continue
+                if time.monotonic() - self._admin_last_activity < ADMIN_IDLE_SECONDS:
+                    continue
+                self.page.run_thread(self._admin_idle_logout)
+
+        threading.Thread(target=_loop, name="jll-admin-idle", daemon=True).start()
+
+    def _admin_idle_logout(self) -> None:
+        if self.state.route is not Route.ADMIN:
+            return
+        business = self.state.business
+        if business is None or not business.sup_unlocked():
+            return
+        if time.monotonic() - self._admin_last_activity < ADMIN_IDLE_SECONDS:
+            return
+        business.lock_sup()
+        self.state.route = Route.DINERS
+        self._render_shell()
+        message_dialog(
+            self.page,
+            title="Administrace",
+            body="Administrace odhlášena po 3 minutách nečinnosti.",
+        )
 
     def start(self) -> None:
         if self.state.needs_setup or self.state.config is None or not self.state.identity_path.is_file():
@@ -213,12 +255,18 @@ class FletAppController:
         self.page.controls.clear()
         self.page.add(shell)
         self.page.update()
+        if self.state.route is Route.ADMIN:
+            self.note_admin_activity()
+            self.page.on_keyboard_event = lambda _e: self.note_admin_activity()
         if self.state.route is Route.DINERS and isinstance(
             getattr(self, "_diners_screen", None), DinersScreen
         ):
             self._diners_screen.focus_search()
 
     def _go_home_logo(self) -> None:
+        self.note_admin_activity()
+        if self.state.route is Route.ADMIN and self.state.business is not None:
+            self.state.business.lock_sup()
         if self.state.route is not Route.DINERS:
             self.state.route = Route.DINERS
             self._render_shell()
@@ -250,15 +298,23 @@ class FletAppController:
                 self.page,
                 self.state,
                 on_text_scale=self._set_scale,
+                on_activity=self.note_admin_activity,
             ).control()
         return theme.text("Neznámá obrazovka", theme.TextRole.BODY)
 
     def _set_route(self, route: Route) -> None:
+        self.note_admin_activity()
         if route is Route.ADMIN:
             business = self.state.business
             if business is not None and not business.sup_unlocked():
                 self._prompt_sup_for_admin()
                 return
+        if (
+            self.state.route is Route.ADMIN
+            and route is not Route.ADMIN
+            and self.state.business is not None
+        ):
+            self.state.business.lock_sup()
         self.state.route = route
         self._render_shell()
 
@@ -300,6 +356,7 @@ class FletAppController:
                 )
                 return
             _close_dialog()
+            self.note_admin_activity()
             self.state.route = Route.ADMIN
             self._render_shell()
 

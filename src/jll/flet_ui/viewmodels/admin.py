@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 from ...business_session import BusinessSession
+from ...config import save_lab_config
 from ...legacy_users import LegacyUserRow
 from ...policy import Permission
+from ...setup_probe import CategoryOption, list_category_options
 from ..state import AppState
 
 
@@ -47,3 +51,36 @@ class AdminViewModel:
             user_id=profile.user_id,
             permissions=permissions,
         )
+
+    def list_category_options(self) -> tuple[CategoryOption, ...]:
+        """Katalog kategorií z `public.kategor` pro správu scope."""
+
+        self.business.require_sup()
+        with self.business.connection_factory() as connection:
+            return list_category_options(connection)
+
+    def save_allowed_categories(self, categories: frozenset[str]) -> None:
+        """Uloží `allowed_categories` do LAB configu a aktualizuje session.
+
+        Mutace je chráněná SUP reauth (stejně jako správa uživatelů).
+        """
+
+        self.business.require_sup()
+        cfg = self.state.config
+        if cfg is None:
+            raise RuntimeError("Config není načten.")
+        known = {item.code for item in self.list_category_options()}
+        normalized = frozenset(
+            value.strip() for value in categories if isinstance(value, str) and value.strip()
+        )
+        if not normalized:
+            raise ValueError("Vyberte alespoň jednu povolenou kategorii.")
+        unknown = sorted(normalized - known)
+        if unknown:
+            raise ValueError(
+                "Neznámé kategorie (nejsou v public.kategor): " + ", ".join(unknown)
+            )
+        updated = dataclasses.replace(cfg, allowed_categories=normalized)
+        save_lab_config(updated, self.state.config_path)
+        self.state.config = updated
+        self.business.config = updated

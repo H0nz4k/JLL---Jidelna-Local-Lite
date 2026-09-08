@@ -97,7 +97,7 @@ SPACING: dict[str, int] = {
 }
 
 NAV_WIDTH = 0  # menu je v horní liště
-LIST_WIDTH = 220
+LIST_WIDTH = 240
 LIST_RATIO = 0.18
 DETAIL_RATIO = 0.82
 WINDOW_WIDTH = 1366
@@ -109,8 +109,8 @@ CONTENT_BORDER_WIDTH = 1
 ADMIN_CONTENT_WIDTH: dict[str, int] = {
     "Uživatelé": 980,
     "Oprávnění": 980,
-    "Kategorie": 560,
-    "Info": 760,
+    "Kategorie": 640,
+    "Info": 860,
     "Čtečka": 720,
     "Vzhled": 680,
 }

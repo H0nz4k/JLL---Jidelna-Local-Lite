@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from jll.business_session import (
     DEFAULT_SUP,
     DEFAULT_VED,
@@ -112,9 +114,20 @@ def test_current_policy_bypass_order_deadlines_regardless_of_code(
         )
         session.bootstrap_ved()
         assert session.current_policy().bypass_order_deadlines is True
+        assert session.can_switch_users() is False
+        with pytest.raises(PermissionError, match="SUP"):
+            session.switch_user("KUCH")
+        session._sup_until = 10**9
+        assert session.can_switch_users() is True
         session.switch_user("KUCH")
         assert session.current_code == "KUCH"
+        assert session.can_switch_users() is False
         assert session.current_policy().bypass_order_deadlines is True
+        with pytest.raises(PermissionError, match="SUP"):
+            session.switch_user("VED")
+        session._sup_until = 10**9
+        session.switch_user("VED")
+        assert session.current_code == "VED"
     finally:
         lu_mod.LegacyUserRepository = original_lu  # type: ignore[misc]
         bs_mod.LegacyUserRepository = original_bs  # type: ignore[misc]

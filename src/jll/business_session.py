@@ -95,7 +95,16 @@ class BusinessSession:
             if user.code.upper() != DEFAULT_SUP and not user.is_admin
         )
 
+    def can_switch_users(self) -> bool:
+        """Přepnutí identity jen po ověření SUP — ne VED ani běžný operátor."""
+
+        return self.sup_unlocked()
+
     def switch_user(self, code: str) -> LegacyUserRow:
+        if not self.can_switch_users():
+            raise PermissionError(
+                "Přepnutí uživatele vyžaduje ověření administrátora SUP."
+            )
         with self.connection_factory() as connection:
             user = LegacyUserRepository(connection).get_user(code)
         if user is None or user.disabled:

@@ -253,11 +253,17 @@ def test_business_session_ved_default_and_switch(tmp_path: Path) -> None:
         ved = session.bootstrap_ved()
         assert ved.code == DEFAULT_VED
         assert session.current_actor().short_code == DEFAULT_VED
+        assert session.can_switch_users() is False
+        with pytest.raises(PermissionError, match="SUP"):
+            session.switch_user("KUCH")
+        session._sup_until = 10**9
+        with pytest.raises(RuntimeError):
+            session.switch_user("SUP")
         switched = session.switch_user("KUCH")
         assert switched.code == "KUCH"
         assert session.current_actor().short_code == "KUCH"
-        with pytest.raises(RuntimeError):
-            session.switch_user("SUP")
+        with pytest.raises(PermissionError, match="SUP"):
+            session.switch_user("VED")
     finally:
         lu_mod.LegacyUserRepository = original_lu  # type: ignore[misc]
         bs_mod.LegacyUserRepository = original_bs  # type: ignore[misc]
@@ -286,7 +292,7 @@ def test_create_user_rejects_admin_template() -> None:
 
 def test_layout_ratios_stable() -> None:
     assert theme.NAV_WIDTH == 0
-    assert theme.LIST_WIDTH == 220
+    assert theme.LIST_WIDTH == 240
     assert abs(theme.LIST_RATIO + theme.DETAIL_RATIO - 1.0) < 1e-9
     assert theme.WINDOW_WIDTH == 1366
     assert theme.WINDOW_HEIGHT == 768
