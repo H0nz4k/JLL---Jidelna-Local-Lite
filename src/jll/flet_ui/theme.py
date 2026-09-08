@@ -238,22 +238,6 @@ def field_label_style(*, scale: TextScale | None = None) -> ft.TextStyle:
     return role_style(TextRole.META, color=COLORS["text_secondary"], scale=scale)
 
 
-def preview_style(
-    *,
-    size: float,
-    bold: bool,
-    color: str | None = None,
-) -> ft.TextStyle:
-    """Draft preview ve Vzhled editoru – size/bold z formuláře, family centrální."""
-
-    return ft.TextStyle(
-        size=size,
-        weight=ft.FontWeight.W_700 if bold else ft.FontWeight.W_400,
-        font_family=FONT_FAMILY,
-        color=color,
-    )
-
-
 def scaled(base: float, scale: TextScale | None = None) -> float:
     """Škáluje geometrii (buňka, padding) podle BODY vůči historickému base 15."""
 

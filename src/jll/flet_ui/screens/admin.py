@@ -979,7 +979,7 @@ class AdminScreen:
         }
         size_fields: dict[str, ft.TextField] = {}
         bold_boxes: dict[str, ft.Checkbox] = {}
-        preview_hosts: dict[str, ft.Container] = {}
+        after_hosts: dict[str, ft.Container] = {}
         error_hosts: dict[str, ft.Container] = {}
         preview_samples = {
             "primary": "Scio Kuchyně · Jarov",
@@ -987,19 +987,23 @@ class AdminScreen:
             "action": "Dnešní objednávky",
             "meta": "Úterý 8. září 2026",
         }
+        role_enum = {
+            "primary": theme.TextRole.PRIMARY,
+            "body": theme.TextRole.BODY,
+            "action": theme.TextRole.ACTION,
+            "meta": theme.TextRole.META,
+        }
 
-        def _preview_style(key: str) -> ft.TextStyle:
+        def _after_label(key: str) -> str:
             role = draft[key]
-            return theme.preview_style(
-                size=role.size,
-                bold=role.bold,
-                color=theme.COLORS["text_primary"],
-            )
+            weight = "tučně" if role.bold else "normální"
+            return f"Po uložení: {role.size:g} px · {weight}"
 
-        def _refresh_preview(key: str) -> None:
-            preview_hosts[key].content = ft.Text(
-                f"Náhled: {preview_samples[key]}",
-                style=_preview_style(key),
+        def _refresh_after(key: str) -> None:
+            after_hosts[key].content = theme.text(
+                _after_label(key),
+                theme.TextRole.META,
+                color=theme.COLORS["text_secondary"],
             )
             self.page.update()
 
@@ -1023,7 +1027,7 @@ class AdminScreen:
                 return
             error_hosts[key].content = ft.Container(height=0)
             draft[key] = TypographyRoleSettings(value, bold_boxes[key].value is True)
-            _refresh_preview(key)
+            _refresh_after(key)
 
         def _on_bold_change(key: str) -> None:
             self.on_activity()
@@ -1033,7 +1037,7 @@ class AdminScreen:
             else:
                 error_hosts[key].content = ft.Container(height=0)
             draft[key] = TypographyRoleSettings(value, bold_boxes[key].value is True)
-            _refresh_preview(key)
+            _refresh_after(key)
 
         def _reset(_e=None) -> None:
             self.on_activity()
@@ -1043,9 +1047,10 @@ class AdminScreen:
                 size_fields[key].value = f"{role.size:g}"
                 bold_boxes[key].value = role.bold
                 error_hosts[key].content = ft.Container(height=0)
-                preview_hosts[key].content = ft.Text(
-                    f"Náhled: {preview_samples[key]}",
-                    style=_preview_style(key),
+                after_hosts[key].content = theme.text(
+                    _after_label(key),
+                    theme.TextRole.META,
+                    color=theme.COLORS["text_secondary"],
                 )
             self.page.update()
 
@@ -1074,13 +1079,15 @@ class AdminScreen:
         rows: list[ft.Control] = [
             theme.text("Písmo", theme.TextRole.ACTION),
             theme.text(
-                "Upravte čtyři styly používané v celé aplikaci.",
+                "Upravte čtyři styly používané v celé aplikaci. "
+                "Změna se projeví až po Uložit.",
                 theme.TextRole.META,
                 color=theme.COLORS["text_secondary"],
             ),
         ]
         for key in ROLE_KEYS:
             role = draft[key]
+            text_role = role_enum[key]
             size_field = ft.TextField(
                 label="Velikost (px)",
                 value=f"{role.size:g}",
@@ -1096,16 +1103,29 @@ class AdminScreen:
                 label_style=theme.role_style(theme.TextRole.BODY),
                 on_change=lambda _e, k=key: _on_bold_change(k),
             )
-            preview = ft.Container(
-                content=ft.Text(
-                    f"Náhled: {preview_samples[key]}",
-                    style=_preview_style(key),
+            sample = ft.Column(
+                [
+                    theme.text(
+                        "Aktuální vzhled",
+                        theme.TextRole.META,
+                        color=theme.COLORS["text_secondary"],
+                    ),
+                    theme.text(preview_samples[key], text_role),
+                ],
+                spacing=2,
+                tight=True,
+            )
+            after = ft.Container(
+                content=theme.text(
+                    _after_label(key),
+                    theme.TextRole.META,
+                    color=theme.COLORS["text_secondary"],
                 )
             )
             err = ft.Container(height=0)
             size_fields[key] = size_field
             bold_boxes[key] = bold
-            preview_hosts[key] = preview
+            after_hosts[key] = after
             error_hosts[key] = err
             rows.extend(
                 [
@@ -1124,7 +1144,8 @@ class AdminScreen:
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         wrap=True,
                     ),
-                    preview,
+                    sample,
+                    after,
                     err,
                 ]
             )
