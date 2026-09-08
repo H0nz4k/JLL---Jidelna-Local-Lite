@@ -6,6 +6,21 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.5.7] – 2026-09-09
+
+Čtečka – IKonverze / Pridat00:
+
+- Administrace → Čtečka: přepínače **IKonverze** a **Přidat 00 na konec**.
+- Pokud je alespoň jeden zapnutý, vstup ze čtečky se upraví (HEX→DEC /
+  připojení `00`) a doplní zleva na 16 znaků (DB `cipy.cislo`).
+- Transformace je centralizovaná v `jll.chip_code_transform` (ne v
+  repository / OrderService).
+- Spec: `docs/JLL_CHIP_IKONVERZE_PRIDAT00.md`.
+
+### Changed
+
+- Canonical verze `0.5.7`.
+
 ## [0.5.6] – 2026-09-09
 
 Administrace → Info layout polish:

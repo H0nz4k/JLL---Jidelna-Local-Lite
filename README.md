@@ -37,7 +37,7 @@ deadline, exkluzivitu variant a audit.
 
 ## Aktuální stav
 
-Verze `0.5.6` (Flet desktop UX). Aplikace se spouští pouze proti lokální
+Verze `0.5.7` (Flet desktop UX). Aplikace se spouští pouze proti lokální
 testovací databázi, jejíž identitu ověřuje LAB guard. Cílové UI je Flet;
 PySide6 zůstává referenční. Backend, identity, oprávnění, objednávkový
 write, create/edit strávníka, chip lifecycle (deposit=0), historie /
@@ -45,6 +45,8 @@ ne-hotovostní platby a **automatická detekce ELATEC čtečky** jsou
 implementované. Záloha za čip > 0 Kč (hotovostní legacy path), hotovostní
 doklad, refund a homebanking vazba zůstávají fail-closed. Category change
 zůstává PARTIAL.
+
+**Přehled pro kolegy:** [docs/JLL_KOLEGA_OVERVIEW.md](docs/JLL_KOLEGA_OVERVIEW.md).
 
 ## Hlavní funkce
 
@@ -84,8 +86,9 @@ zůstává PARTIAL.
   vlastníka. Pokud je očekávaná čtečka odpojená, search pole ukáže světle
   červené `čtečka nepřipojena`.
 - Administrace → Čtečka: režim AUTO/MANUAL, detekované zařízení, baudrate,
-  test. Uložení vyžaduje `admin.reader` i SUP reauth.
-  Docs: `docs/JLL_ELATEC_AUTO_DETECTION_0.4.2.md`.
+  test, přepínače **IKonverze** / **Přidat 00** (úprava kódu ze čtečky na
+  DB tvar 16 znaků). Docs: `docs/JLL_ELATEC_AUTO_DETECTION_0.4.2.md`,
+  `docs/JLL_CHIP_IKONVERZE_PRIDAT00.md`.
 
 ### Platby
 
