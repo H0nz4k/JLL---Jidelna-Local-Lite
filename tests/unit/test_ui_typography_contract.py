@@ -182,6 +182,16 @@ def test_theme_has_no_w500_w600() -> None:
     assert "W_600" not in text
     assert "w600" not in text
     assert "w500" not in text
+    assert "def preview_style" not in text
+
+
+def test_no_preview_style_loophole_anywhere_in_flet_ui() -> None:
+    offenders = []
+    for path in _flet_ui_py_files() + [THEME_FILE]:
+        text = path.read_text(encoding="utf-8")
+        if "preview_style" in text:
+            offenders.append(path.relative_to(ROOT).as_posix())
+    assert offenders == []
 
 
 def test_home_has_no_all_caps_section_heading() -> None:

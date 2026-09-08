@@ -62,6 +62,8 @@ def test_appearance_help_hides_internal_roles() -> None:
     assert "Role: PRIMARY" not in text
     assert "Upravte čtyři styly používané v celé aplikaci." in text
     assert "ROLE_LABELS_CS" in text
+    assert "Aktuální vzhled" in text
+    assert "Po uložení:" in text
     assert "_content_card" in text
     assert "_rebuild_nav" in text
     assert "on_typography_save" in text
