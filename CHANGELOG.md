@@ -6,6 +6,26 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.5.0] – 2026-09-08
+
+HOME / Dnešní objednávky na obrazovce Strávníci:
+
+- empty state nahrazen read-only přehledem dnešních objednaných porcí;
+- serverové datum + `varnedny`, multi-menu, total porcí, scope `allowed_categories`;
+- ESC a 60 s idle návrat na HOME s privacy reset (bez zahození dirty/modal);
+- search vždy search (stav čtečky už nepřepisuje placeholder);
+- shell subtitle: provozovna · pracoviště (datum je na HOME).
+
+### Added
+
+- `docs/JLL_HOME_TODAY_OVERVIEW_SPEC_0.5.0.md`
+- `OrderReadService.load_home_today_overview`
+- `IdleHomeController` + unit testy HOME/idle
+
+### Changed
+
+- Canonical verze `0.5.0`.
+
 ## [0.4.4] – 2026-09-08
 
 Typography hardening – skutečně jen 4 textové role napříč celým Flet UI:
