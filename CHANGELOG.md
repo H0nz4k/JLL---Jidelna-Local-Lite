@@ -6,6 +6,21 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.5.5] – 2026-09-09
+
+Installation reset / first-run restart:
+
+- Administrace → Info: **Obnovit počáteční nastavení** po novém ověření SUP.
+- Před resetem vznikne lokální recovery záloha (`config/reset-backups/...`).
+- Reset nemaže ani neupravuje databázová data a následně používá
+  **stejný** průvodce jako první spuštění (`SetupScreen`).
+- Spec: `docs/JLL_INSTALLATION_RESET_SPEC_0.5.5.md`
+  (prompt cíl 0.5.4 remapped, protože 0.5.4 je order-relation fix).
+
+### Changed
+
+- Canonical verze `0.5.5`.
+
 ## [0.5.4] – 2026-09-09
 
 Order relation applicability fix:

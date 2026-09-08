@@ -37,7 +37,7 @@ deadline, exkluzivitu variant a audit.
 
 ## Aktuální stav
 
-Verze `0.5.4` (Flet desktop UX). Aplikace se spouští pouze proti lokální
+Verze `0.5.5` (Flet desktop UX). Aplikace se spouští pouze proti lokální
 testovací databázi, jejíž identitu ověřuje LAB guard. Cílové UI je Flet;
 PySide6 zůstává referenční. Backend, identity, oprávnění, objednávkový
 write, create/edit strávníka, chip lifecycle (deposit=0), historie /
@@ -210,6 +210,10 @@ instalaci vytvoří Setup Wizard nebo vlastní kopie příkladového configu.
 Architektura Flet UI: `docs/JLL_FLET_ARCHITECTURE.md`.
 
 Reset first-run (ne DB):
+
+- V aplikaci: Administrace → Info → **Obnovit počáteční nastavení**
+  (SUP ověření, lokální recovery záloha, stejný Setup průvodce).
+- CLI (dev/ops):
 
 ```bash
 ./tools/reset_jll_first_run.sh --dry-run

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jidelna-local-lite"
-version = "0.5.4"
+version = "0.5.5"
 description = "LAB backend services for JidelnaLocalLite"
 requires-python = ">=3.11"
 dependencies = [
