@@ -33,7 +33,6 @@ def app_shell(
     else:
         date_line = "Datum —"
 
-    meta_size = theme.role_size(theme.TextRole.META)
     meta_color = theme.COLORS["text_secondary"]
     subtitle = f"{subject}   {date_line}"
 
@@ -50,27 +49,22 @@ def app_shell(
                 spans=[
                     ft.TextSpan(
                         "JidelnaLocalLite",
-                        ft.TextStyle(
-                            size=theme.role_size(theme.TextRole.PRIMARY),
-                            weight=ft.FontWeight.W_700,
+                        theme.role_style(
+                            theme.TextRole.PRIMARY,
                             color=theme.COLORS["text_primary"],
                         ),
                     ),
                     ft.TextSpan(
                         f"  v{app_version}",
-                        ft.TextStyle(
-                            size=meta_size,
-                            weight=ft.FontWeight.W_400,
-                            color=meta_color,
-                        ),
+                        theme.role_style(theme.TextRole.META, color=meta_color),
                     ),
                 ],
                 max_lines=1,
                 overflow=ft.TextOverflow.ELLIPSIS,
             ),
-            ft.Text(
+            theme.text(
                 subtitle,
-                size=meta_size,
+                theme.TextRole.META,
                 color=meta_color,
                 overflow=ft.TextOverflow.ELLIPSIS,
                 max_lines=1,

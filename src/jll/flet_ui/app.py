@@ -235,7 +235,7 @@ class FletAppController:
                 self.state,
                 on_text_scale=self._set_scale,
             ).control()
-        return ft.Text("Neznámá obrazovka")
+        return theme.text("Neznámá obrazovka", theme.TextRole.BODY)
 
     def _set_route(self, route: Route) -> None:
         if route is Route.ADMIN:
@@ -257,7 +257,8 @@ class FletAppController:
             password=True,
             can_reveal_password=True,
             autofocus=True,
-            text_size=theme.role_size(theme.TextRole.BODY),
+            text_size=theme.field_text_size(),
+            label_style=theme.field_label_style(),
             on_submit=lambda _e: _unlock(),
         )
 
@@ -289,16 +290,12 @@ class FletAppController:
         dialog = ft.AlertDialog(
             modal=True,
             barrier_color="#00000099",
-            title=ft.Text(
-                "Ověření SUP",
-                size=theme.role_size(theme.TextRole.PRIMARY),
-                weight=ft.FontWeight.W_700,
-            ),
+            title=theme.text("Ověření SUP", theme.TextRole.PRIMARY),
             content=ft.Column(
                 [
-                    ft.Text(
+                    theme.text(
                         "Citlivé administrativní akce vyžadují heslo administrátora SUP.",
-                        size=theme.role_size(theme.TextRole.BODY),
+                        theme.TextRole.BODY,
                         color=theme.COLORS["text_secondary"],
                     ),
                     password,
@@ -308,8 +305,8 @@ class FletAppController:
                 width=420,
             ),
             actions=[
-                ft.TextButton("Zrušit", on_click=_cancel),
-                ft.FilledButton("Ověřit", on_click=_unlock),
+                ft.TextButton("Zrušit", style=theme.button_style(), on_click=_cancel),
+                ft.FilledButton("Ověřit", style=theme.button_style(), on_click=_unlock),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )

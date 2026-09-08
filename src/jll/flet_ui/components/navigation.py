@@ -29,11 +29,10 @@ def navigation_bar(active: Route, on_change) -> ft.Control:
                             color="#FFFFFF" if selected else theme.COLORS["text_secondary"],
                             size=18,
                         ),
-                        ft.Text(
+                        theme.text(
                             label,
-                            size=theme.role_size(theme.TextRole.ACTION),
+                            theme.TextRole.ACTION,
                             color="#FFFFFF" if selected else theme.COLORS["text_primary"],
-                            weight=ft.FontWeight.W_700 if selected else ft.FontWeight.W_500,
                         ),
                     ],
                     spacing=8,

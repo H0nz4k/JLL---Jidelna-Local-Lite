@@ -11,6 +11,12 @@ from ..viewmodels.setup import SetupViewModel
 from ...setup_probe import CategoryOption
 
 
+def _field(**kwargs) -> ft.TextField:
+    kwargs.setdefault("text_size", theme.field_text_size())
+    kwargs.setdefault("label_style", theme.field_label_style())
+    return ft.TextField(**kwargs)
+
+
 class SetupScreen:
     def __init__(self, page: ft.Page, state: AppState, *, on_finished) -> None:
         self.page = page
@@ -21,14 +27,10 @@ class SetupScreen:
         self.root = ft.Container(
             content=ft.Column(
                 [
-                    ft.Text(
-                        "První nastavení",
-                        size=theme.role_size(theme.TextRole.PRIMARY),
-                        weight=ft.FontWeight.W_700,
-                    ),
-                    ft.Text(
+                    theme.text("První nastavení", theme.TextRole.PRIMARY),
+                    theme.text(
                         " · ".join(self.vm.STEPS),
-                        size=theme.role_size(theme.TextRole.META),
+                        theme.TextRole.META,
                         color=theme.COLORS["text_secondary"],
                     ),
                     self.body,
@@ -49,9 +51,7 @@ class SetupScreen:
         self.body.controls.clear()
         step = self.vm.draft.step
         title = self.vm.STEPS[step]
-        self.body.controls.append(
-            ft.Text(title, size=theme.role_size(theme.TextRole.ACTION), weight=ft.FontWeight.W_600)
-        )
+        self.body.controls.append(theme.text(title, theme.TextRole.ACTION))
         if step == 0:
             self._step_db()
         elif step == 1:
@@ -64,24 +64,42 @@ class SetupScreen:
             self._step_summary()
         nav = []
         if step > 0:
-            nav.append(ft.OutlinedButton("Zpět", on_click=lambda _e: self._back()))
+            nav.append(
+                ft.OutlinedButton(
+                    "Zpět", style=theme.button_style(), on_click=lambda _e: self._back()
+                )
+            )
         if step < len(self.vm.STEPS) - 1:
-            nav.append(ft.FilledButton("Další", on_click=lambda _e: self._next()))
+            nav.append(
+                ft.FilledButton(
+                    "Další", style=theme.button_style(), on_click=lambda _e: self._next()
+                )
+            )
         else:
-            nav.append(ft.FilledButton("Dokončit", on_click=lambda _e: self._finish()))
+            nav.append(
+                ft.FilledButton(
+                    "Dokončit",
+                    style=theme.button_style(),
+                    on_click=lambda _e: self._finish(),
+                )
+            )
         self.body.controls.append(ft.Row(nav, spacing=theme.SPACING["sm"]))
         self.page.update()
 
     def _step_db(self) -> None:
         d = self.vm.draft
-        host = ft.TextField(label="Host", value=d.host)
-        port = ft.TextField(label="Port", value=d.port)
-        database = ft.TextField(label="Databáze", value=d.database)
-        user = ft.TextField(label="DB uživatel", value=d.user)
-        password = ft.TextField(label="DB heslo", value=d.password, password=True, can_reveal_password=True)
-        status = ft.Text(
-            "Spojení zatím nebylo ověřeno." if d.probe is None else f"OK · {len(d.probe.stations)} stanic",
-            size=theme.role_size(theme.TextRole.BODY),
+        host = _field(label="Host", value=d.host)
+        port = _field(label="Port", value=d.port)
+        database = _field(label="Databáze", value=d.database)
+        user = _field(label="DB uživatel", value=d.user)
+        password = _field(
+            label="DB heslo", value=d.password, password=True, can_reveal_password=True
+        )
+        status = theme.text(
+            "Spojení zatím nebylo ověřeno."
+            if d.probe is None
+            else f"OK · {len(d.probe.stations)} stanic",
+            theme.TextRole.BODY,
         )
 
         def _save_fields() -> None:
@@ -106,16 +124,26 @@ class SetupScreen:
             self.page.update()
 
         self.body.controls.extend(
-            [host, port, database, user, password, ft.OutlinedButton("Otestovat spojení", on_click=_test), status]
+            [
+                host,
+                port,
+                database,
+                user,
+                password,
+                ft.OutlinedButton(
+                    "Otestovat spojení", style=theme.button_style(), on_click=_test
+                ),
+                status,
+            ]
         )
         self._persist = _save_fields
 
     def _step_station(self) -> None:
         d = self.vm.draft
         if d.probe is None:
-            self.body.controls.append(ft.Text("Nejprve ověřte databázi."))
+            self.body.controls.append(theme.text("Nejprve ověřte databázi.", theme.TextRole.BODY))
             return
-        site = ft.TextField(
+        site = _field(
             label="Provozovna",
             value=d.site_name,
             on_change=lambda e: setattr(d, "site_name", e.control.value or ""),
@@ -129,6 +157,8 @@ class SetupScreen:
             label="Stanice",
             options=options,
             value=d.station.name if d.station else None,
+            text_size=theme.field_text_size(),
+            label_style=theme.field_label_style(),
             on_change=lambda e: self._pick_station(e.control.value),
         )
         self.body.controls.extend([site, station])
@@ -145,7 +175,7 @@ class SetupScreen:
     def _step_categories(self) -> None:
         d = self.vm.draft
         if d.probe is None:
-            self.body.controls.append(ft.Text("Nejprve ověřte databázi."))
+            self.body.controls.append(theme.text("Nejprve ověřte databázi.", theme.TextRole.BODY))
             return
         options = d.probe.category_options or tuple(
             CategoryOption(code=c) for c in d.probe.categories
@@ -169,6 +199,7 @@ class SetupScreen:
 
         all_box = ft.Checkbox(
             label="Vybrat vše",
+            label_style=theme.role_style(theme.TextRole.BODY),
             value=bool(options) and len(d.categories) == len(options),
             on_change=_toggle_all,
         )
@@ -176,6 +207,7 @@ class SetupScreen:
         for item in options:
             cb = ft.Checkbox(
                 label=item.label,
+                label_style=theme.role_style(theme.TextRole.BODY),
                 value=item.code in d.categories,
                 on_change=lambda e, c=item.code: _toggle_one(c, bool(e.control.value)),
             )
@@ -192,13 +224,13 @@ class SetupScreen:
 
     def _step_sup(self) -> None:
         d = self.vm.draft
-        p1 = ft.TextField(
+        p1 = _field(
             label="Heslo administrátora SUP",
             password=True,
             can_reveal_password=True,
             value=d.sup_password,
         )
-        p2 = ft.TextField(
+        p2 = _field(
             label="Heslo znovu",
             password=True,
             can_reveal_password=True,
@@ -215,14 +247,14 @@ class SetupScreen:
     def _step_summary(self) -> None:
         d = self.vm.draft
         self.body.controls.append(
-            ft.Text(
+            theme.text(
                 f"Databáze: {d.host}:{d.port}/{d.database}\n"
                 f"Provozovna: {d.site_name}\n"
                 f"Stanice: {d.station.name if d.station else '—'}\n"
                 f"Kategorie: {', '.join(d.categories)}\n"
                 f"Default uživatel: VED (bez PINu)\n"
                 f"SUP heslo: nastaveno",
-                size=theme.role_size(theme.TextRole.BODY),
+                theme.TextRole.BODY,
             )
         )
         self._persist = lambda: None

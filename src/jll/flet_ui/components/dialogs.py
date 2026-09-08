@@ -16,18 +16,18 @@ def message_dialog(
 ) -> None:
     dialog = ft.AlertDialog(
         modal=True,
-        title=ft.Text(
-            title,
-            size=theme.role_size(theme.TextRole.PRIMARY),
-            weight=ft.FontWeight.W_700,
-        ),
-        content=ft.Text(
+        title=theme.text(title, theme.TextRole.PRIMARY),
+        content=theme.text(
             body,
-            size=theme.role_size(theme.TextRole.BODY),
+            theme.TextRole.BODY,
             color=theme.COLORS["text_primary"],
         ),
         actions=[
-            ft.TextButton(primary, on_click=lambda _e: _close(page, dialog)),
+            ft.TextButton(
+                primary,
+                style=theme.button_style(),
+                on_click=lambda _e: _close(page, dialog),
+            ),
         ],
         actions_alignment=ft.MainAxisAlignment.END,
     )
@@ -46,12 +46,17 @@ def confirm_dialog(
 ) -> None:
     dialog = ft.AlertDialog(
         modal=True,
-        title=ft.Text(title, size=theme.role_size(theme.TextRole.PRIMARY), weight=ft.FontWeight.W_700),
-        content=ft.Text(body, size=theme.role_size(theme.TextRole.BODY)),
+        title=theme.text(title, theme.TextRole.PRIMARY),
+        content=theme.text(body, theme.TextRole.BODY),
         actions=[
-            ft.TextButton("Zrušit", on_click=lambda _e: _close(page, dialog)),
+            ft.TextButton(
+                "Zrušit",
+                style=theme.button_style(),
+                on_click=lambda _e: _close(page, dialog),
+            ),
             ft.FilledButton(
                 confirm_label,
+                style=theme.button_style(),
                 on_click=lambda _e: (_close(page, dialog), on_confirm()),
             ),
         ],

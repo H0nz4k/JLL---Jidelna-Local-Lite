@@ -11,15 +11,14 @@ def empty_state(title: str, body: str) -> ft.Control:
     return ft.Container(
         content=ft.Column(
             [
-                ft.Text(
+                theme.text(
                     title,
-                    size=theme.role_size(theme.TextRole.PRIMARY),
-                    weight=ft.FontWeight.W_700,
+                    theme.TextRole.PRIMARY,
                     color=theme.COLORS["text_primary"],
                 ),
-                ft.Text(
+                theme.text(
                     body,
-                    size=theme.role_size(theme.TextRole.BODY),
+                    theme.TextRole.BODY,
                     color=theme.COLORS["text_secondary"],
                 ),
             ],

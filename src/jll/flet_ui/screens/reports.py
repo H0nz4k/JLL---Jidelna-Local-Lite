@@ -48,11 +48,7 @@ class ReportsScreen:
         self.actions = ft.Row(spacing=theme.SPACING["sm"])
         self.root = ft.Column(
             [
-                ft.Text(
-                    "Sestavy",
-                    size=theme.role_size(theme.TextRole.PRIMARY),
-                    weight=ft.FontWeight.W_700,
-                ),
+                theme.text("Sestavy", theme.TextRole.PRIMARY),
                 self.tabs_row,
                 self.filter_row,
                 ft.Container(
@@ -84,11 +80,10 @@ class ReportsScreen:
 
     def _pill(self, label: str, *, selected: bool, on_click) -> ft.Control:
         return ft.Container(
-            content=ft.Text(
+            content=theme.text(
                 label,
-                size=theme.role_size(theme.TextRole.ACTION),
+                theme.TextRole.ACTION,
                 color="#FFFFFF" if selected else theme.COLORS["text_primary"],
-                weight=ft.FontWeight.W_700 if selected else ft.FontWeight.W_500,
             ),
             bgcolor=theme.COLORS["accent"] if selected else theme.COLORS["surface_muted"],
             border=ft.border.all(
@@ -121,11 +116,15 @@ class ReportsScreen:
             for day in DayFilter
         ]
         buttons: list[ft.Control] = [
-            ft.OutlinedButton("Náhled", on_click=lambda _e: self._preview()),
+            ft.OutlinedButton(
+                "Náhled", style=theme.button_style(), on_click=lambda _e: self._preview()
+            ),
         ]
         if self.vm.can_print():
             buttons.append(
-                ft.FilledButton("Export", on_click=lambda _e: self._export())
+                ft.FilledButton(
+                    "Export", style=theme.button_style(), on_click=lambda _e: self._export()
+                )
             )
         self.actions.controls = buttons
 
@@ -184,22 +183,20 @@ class ReportsScreen:
         return [
             ft.Row(
                 [
-                    ft.Text(
+                    theme.text(
                         self._target.strftime("%d. %m. %Y"),
-                        size=theme.role_size(theme.TextRole.BODY),
+                        theme.TextRole.META,
                         color=theme.COLORS["text_secondary"],
-                        weight=ft.FontWeight.W_600,
                     ),
                     ft.Container(expand=True),
-                    ft.Text(
+                    theme.text(
                         "Porcí celkem",
-                        size=theme.role_size(theme.TextRole.META),
+                        theme.TextRole.META,
                         color=theme.COLORS["text_secondary"],
                     ),
-                    ft.Text(
+                    theme.text(
                         str(self._report.total_portions),
-                        size=theme.role_size(theme.TextRole.PRIMARY),
-                        weight=ft.FontWeight.W_700,
+                        theme.TextRole.PRIMARY,
                         color=theme.COLORS["accent"],
                     ),
                 ],
@@ -230,17 +227,16 @@ class ReportsScreen:
         return ft.Container(
             content=ft.Row(
                 [
-                    ft.Text(
+                    theme.text(
                         label,
-                        size=theme.role_size(theme.TextRole.BODY),
+                        theme.TextRole.BODY,
                         expand=True,
                         overflow=ft.TextOverflow.ELLIPSIS,
                         max_lines=1,
                     ),
-                    ft.Text(
+                    theme.text(
                         str(count),
-                        size=theme.role_size(theme.TextRole.BODY),
-                        weight=ft.FontWeight.W_700,
+                        theme.TextRole.BODY,
                         color=theme.COLORS["accent"],
                         width=40,
                         text_align=ft.TextAlign.RIGHT,
@@ -256,9 +252,9 @@ class ReportsScreen:
     def _categories_lines(self, report: DailyReport) -> list[ft.Control]:
         if not report.categories:
             return [
-                ft.Text(
+                theme.text(
                     "Žádný souhrn kategorií.",
-                    size=theme.role_size(theme.TextRole.META),
+                    theme.TextRole.META,
                     color=theme.COLORS["text_secondary"],
                 )
             ]
@@ -269,9 +265,9 @@ class ReportsScreen:
     def _norms_lines(self, report: DailyReport) -> list[ft.Control]:
         if not report.norms:
             return [
-                ft.Text(
+                theme.text(
                     "Žádné normy.",
-                    size=theme.role_size(theme.TextRole.META),
+                    theme.TextRole.META,
                     color=theme.COLORS["text_secondary"],
                 )
             ]
@@ -287,17 +283,17 @@ class ReportsScreen:
         rows: list[ft.Control] = []
         for diner in report.diners[:300]:
             rows.append(
-                ft.Text(
+                theme.text(
                     f"{diner.name} · {diner.meal_type} · menu {diner.menu}",
-                    size=theme.role_size(theme.TextRole.BODY),
+                    theme.TextRole.BODY,
                     overflow=ft.TextOverflow.ELLIPSIS,
                     max_lines=1,
                 )
             )
         if not rows:
-            return ft.Text(
+            return theme.text(
                 "Žádné jmenné položky.",
-                size=theme.role_size(theme.TextRole.META),
+                theme.TextRole.META,
                 color=theme.COLORS["text_secondary"],
             )
         # Jmenný seznam scrolluje uvnitř panelu; výška podle obsahu, ne přes celou obrazovku.
@@ -308,14 +304,13 @@ class ReportsScreen:
             message_dialog(self.page, title="Náhled", body="Nejdřív načtěte sestavu.")
             return
         lines: list[ft.Control] = [
-            ft.Text(
+            theme.text(
                 f"{self.tab.value} · {self._target.strftime('%d. %m. %Y')}",
-                size=theme.role_size(theme.TextRole.ACTION),
-                weight=ft.FontWeight.W_600,
+                theme.TextRole.ACTION,
             ),
-            ft.Text(
+            theme.text(
                 f"Porcí celkem: {self._report.total_portions}",
-                size=theme.role_size(theme.TextRole.BODY),
+                theme.TextRole.BODY,
             ),
             ft.Divider(),
         ]
@@ -326,18 +321,14 @@ class ReportsScreen:
         else:
             for diner in self._report.diners[:200]:
                 lines.append(
-                    ft.Text(
+                    theme.text(
                         f"{diner.name} · {diner.meal_type} · menu {diner.menu}",
-                        size=theme.role_size(theme.TextRole.META),
+                        theme.TextRole.META,
                     )
                 )
         dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text(
-                "Náhled sestavy",
-                size=theme.role_size(theme.TextRole.PRIMARY),
-                weight=ft.FontWeight.W_700,
-            ),
+            title=theme.text("Náhled sestavy", theme.TextRole.PRIMARY),
             content=ft.Container(
                 content=ft.Column(lines, scroll=ft.ScrollMode.AUTO, spacing=4),
                 width=560,
@@ -346,6 +337,7 @@ class ReportsScreen:
             actions=[
                 ft.TextButton(
                     "Zavřít",
+                    style=theme.button_style(),
                     on_click=lambda _e: setattr(dialog, "open", False)
                     or self.page.update(),
                 )

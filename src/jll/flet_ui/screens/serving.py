@@ -52,27 +52,21 @@ class ServingScreen:
         self.body.controls.append(
             ft.Row(
                 [
-                    ft.Text(
-                        "Stav výdeje",
-                        size=theme.role_size(theme.TextRole.PRIMARY),
-                        weight=ft.FontWeight.W_700,
-                    ),
-                    ft.Text(
+                    theme.text("Stav výdeje", theme.TextRole.PRIMARY),
+                    theme.text(
                         day.strftime("%d. %m. %Y"),
-                        size=theme.role_size(theme.TextRole.BODY),
+                        theme.TextRole.META,
                         color=theme.COLORS["text_secondary"],
-                        weight=ft.FontWeight.W_600,
                     ),
                     ft.Container(expand=True),
-                    ft.Text(
+                    theme.text(
                         f"celkem {ordered_total}",
-                        size=theme.role_size(theme.TextRole.BODY),
+                        theme.TextRole.META,
                         color=theme.COLORS["text_secondary"],
                     ),
-                    ft.Text(
+                    theme.text(
                         f"zbývá {remaining_total}",
-                        size=theme.role_size(theme.TextRole.BODY),
-                        weight=ft.FontWeight.W_700,
+                        theme.TextRole.ACTION,
                         color=theme.COLORS["accent"],
                     ),
                 ],
@@ -100,28 +94,25 @@ class ServingScreen:
                     ft.Container(
                         content=ft.Row(
                             [
-                                ft.Text(
+                                theme.text(
                                     meal_type if index == 0 else "",
-                                    size=theme.role_size(theme.TextRole.BODY),
-                                    weight=ft.FontWeight.W_700,
+                                    theme.TextRole.BODY,
                                     width=110,
                                 ),
-                                ft.Text(
+                                theme.text(
                                     f"Menu {item.menu}",
-                                    size=theme.role_size(theme.TextRole.BODY),
-                                    weight=ft.FontWeight.W_600,
+                                    theme.TextRole.BODY,
                                     width=72,
                                 ),
-                                ft.Text(
+                                theme.text(
                                     f"celkem {item.ordered}",
-                                    size=theme.role_size(theme.TextRole.BODY),
+                                    theme.TextRole.META,
                                     color=theme.COLORS["text_secondary"],
                                     width=96,
                                 ),
-                                ft.Text(
+                                theme.text(
                                     f"zbývá {remaining}",
-                                    size=theme.role_size(theme.TextRole.BODY),
-                                    weight=ft.FontWeight.W_700,
+                                    theme.TextRole.ACTION,
                                     color=theme.COLORS["accent"],
                                 ),
                             ],
