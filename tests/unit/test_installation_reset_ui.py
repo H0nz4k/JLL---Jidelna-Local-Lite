@@ -20,6 +20,8 @@ def test_admin_info_has_reset_action_and_reuses_setup() -> None:
     assert "Obnovit počáteční nastavení" in admin
     assert "Počáteční nastavení" in admin
     assert "on_installation_reset" in admin
+    assert "Zobrazit changelog" in admin
+    assert "_open_changelog_dialog" in admin
     assert "ResetWizard" not in admin
     assert "SetupScreen" not in admin  # setup remains in app.py only
 

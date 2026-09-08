@@ -500,7 +500,6 @@ class AdminScreen:
         self.body.controls.append(self._content_card("Čtečka", controls))
 
     def _render_info(self) -> None:
-        from ...changelog_preview import load_changelog_preview
         from ...dev_credits import AUTHOR_SIGNATURE, format_development_hours
         from ...version import application_version
 
@@ -539,39 +538,41 @@ class AdminScreen:
                 else "—",
                 theme.TextRole.BODY,
             ),
+            ft.Divider(height=12, color=theme.COLORS["border"]),
+            theme.text("Počáteční nastavení", theme.TextRole.ACTION),
             theme.text(
-                "Changelog (náhled)",
+                "Vrátí tuto instalaci JLL do stavu prvního spuštění.\n"
+                "Databázová data zůstanou beze změny.\n"
+                "Lokální JLL profily a jejich JLL oprávnění budou vráceny do výchozího stavu.\n"
+                "Databázoví uživatelé v JídelnaSQL zůstanou beze změny.",
                 theme.TextRole.META,
                 color=theme.COLORS["text_secondary"],
             ),
-        ]
-        entries = load_changelog_preview(limit=5)
-        if not entries:
-            controls.append(
-                theme.text(
-                    "CHANGELOG.md není dostupný.",
-                    theme.TextRole.META,
-                    color=theme.COLORS["text_secondary"],
-                )
-            )
-        else:
-            for entry in entries:
-                controls.append(theme.text(entry.title, theme.TextRole.ACTION))
-                for line in entry.summary_lines[:4]:
-                    controls.append(
-                        theme.text(
-                            f"• {line}",
-                            theme.TextRole.META,
-                            color=theme.COLORS["text_secondary"],
-                        )
-                    )
-        controls.append(
+            ft.OutlinedButton(
+                "Obnovit počáteční nastavení",
+                style=theme.button_style(
+                    color=theme.COLORS["danger"],
+                    bgcolor=theme.COLORS["surface"],
+                ),
+                on_click=lambda _e: self._open_installation_reset_dialog(),
+            ),
+            ft.Divider(height=12, color=theme.COLORS["border"]),
+            theme.text(
+                "Changelog",
+                theme.TextRole.META,
+                color=theme.COLORS["text_secondary"],
+            ),
+            ft.OutlinedButton(
+                "Zobrazit changelog",
+                style=theme.button_style(),
+                on_click=lambda _e: self._open_changelog_dialog(),
+            ),
             theme.text(
                 "Audit (posledních 50)",
                 theme.TextRole.META,
                 color=theme.COLORS["text_secondary"],
-            )
-        )
+            ),
+        ]
         events = self.state.identity_store.read_audit() if self.state.identity_store else []
         if not events:
             controls.append(
@@ -589,28 +590,6 @@ class AdminScreen:
                         theme.TextRole.META,
                     )
                 )
-        controls.append(ft.Divider(height=12, color=theme.COLORS["border"]))
-        controls.append(theme.text("Počáteční nastavení", theme.TextRole.ACTION))
-        controls.append(
-            theme.text(
-                "Vrátí tuto instalaci JLL do stavu prvního spuštění.\n"
-                "Databázová data zůstanou beze změny.\n"
-                "Lokální JLL profily a jejich JLL oprávnění budou vráceny do výchozího stavu.\n"
-                "Databázoví uživatelé v JídelnaSQL zůstanou beze změny.",
-                theme.TextRole.META,
-                color=theme.COLORS["text_secondary"],
-            )
-        )
-        controls.append(
-            ft.OutlinedButton(
-                "Obnovit počáteční nastavení",
-                style=theme.button_style(
-                    color=theme.COLORS["danger"],
-                    bgcolor=theme.COLORS["surface"],
-                ),
-                on_click=lambda _e: self._open_installation_reset_dialog(),
-            )
-        )
         self.body.controls.append(self._content_card("Info", controls))
 
         # Průběžná aktualizace hodin, dokud je sekce Info otevřená.
@@ -640,6 +619,62 @@ class AdminScreen:
                 self.page.run_thread(_apply)
 
         threading.Thread(target=_tick, name="jll-info-hours", daemon=True).start()
+
+    def _open_changelog_dialog(self) -> None:
+        self.on_activity()
+        from ...changelog_preview import load_changelog_preview
+
+        entries = load_changelog_preview(limit=20)
+        content_controls: list[ft.Control] = []
+        if not entries:
+            content_controls.append(
+                theme.text(
+                    "CHANGELOG.md není dostupný.",
+                    theme.TextRole.META,
+                    color=theme.COLORS["text_secondary"],
+                )
+            )
+        else:
+            for entry in entries:
+                content_controls.append(theme.text(entry.title, theme.TextRole.ACTION))
+                for line in entry.summary_lines[:6]:
+                    content_controls.append(
+                        theme.text(
+                            f"• {line}",
+                            theme.TextRole.META,
+                            color=theme.COLORS["text_secondary"],
+                        )
+                    )
+        dialog_holder: dict[str, ft.AlertDialog | None] = {"dialog": None}
+
+        def _close(_e=None) -> None:
+            dialog = dialog_holder["dialog"]
+            if dialog is None:
+                return
+            dialog.open = False
+            self.page.update()
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=theme.text("Changelog", theme.TextRole.PRIMARY),
+            content=ft.Container(
+                content=ft.Column(
+                    content_controls,
+                    tight=True,
+                    spacing=theme.SPACING["sm"],
+                    scroll=ft.ScrollMode.AUTO,
+                ),
+                width=520,
+                height=420,
+            ),
+            actions=[
+                ft.TextButton("Zavřít", style=theme.button_style(), on_click=_close),
+            ],
+        )
+        dialog_holder["dialog"] = dialog
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
 
     def _open_installation_reset_dialog(self) -> None:
         self.on_activity()
