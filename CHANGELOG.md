@@ -6,6 +6,22 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.5.4] – 2026-09-09
+
+Order relation applicability fix:
+
+- Opraveno objednávání u kategorií, které nepoužívají všechny globálně
+  vzájemně vylučující typy stravy. JLL nyní vyžaduje měsíční řádky pouze
+  pro typy skutečně platné pro danou period category (`sazby`); chybějící
+  řádek relevantního typu nadále failuje bezpečně.
+- Stejný filtr platí pro `vyloucenos` i `spolecnes`.
+- Forenzní důkaz: `docs/ORDER_RELATION_APPLICABILITY_FORENSICS_0.5.4.md`
+  (prompt cíl 0.5.3 byl přesunut na 0.5.4, protože 0.5.3 už vyšlo jako UX polish).
+
+### Changed
+
+- Canonical verze `0.5.4`.
+
 ## [0.5.3] – 2026-09-09
 
 UX polish karty strávníka a HOME:
