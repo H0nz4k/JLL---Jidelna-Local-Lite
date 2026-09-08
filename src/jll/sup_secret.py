@@ -63,6 +63,43 @@ class SupSecretStore:
         if path is not None and path.exists():
             path.unlink()
 
+    def clear_strict(self) -> None:
+        """Strict clear for installation reset (fail if secret cannot be removed)."""
+
+        from keyring.errors import KeyringError, PasswordDeleteError
+
+        had_keyring = False
+        try:
+            had_keyring = bool(keyring.get_password(SERVICE_NAME, self._username))
+        except KeyringError as exc:
+            raise RuntimeError(
+                "Keyring není dostupný pro smazání SUP secret."
+            ) from exc
+        if had_keyring:
+            try:
+                keyring.delete_password(SERVICE_NAME, self._username)
+            except PasswordDeleteError:
+                pass
+            except KeyringError as exc:
+                raise RuntimeError(
+                    "SUP secret v keyring nelze smazat."
+                ) from exc
+            try:
+                if keyring.get_password(SERVICE_NAME, self._username):
+                    raise RuntimeError("SUP secret v keyring stále existuje.")
+            except KeyringError as exc:
+                raise RuntimeError(
+                    "Keyring nelze ověřit po smazání SUP secret."
+                ) from exc
+        path = self._fallback_path()
+        if path is not None and path.exists():
+            try:
+                path.unlink()
+            except OSError as exc:
+                raise RuntimeError("SUP fallback hash nelze smazat.") from exc
+        if self.exists():
+            raise RuntimeError("SUP secret stále existuje po clear_strict.")
+
     def _load_hash(self) -> str | None:
         try:
             value = keyring.get_password(SERVICE_NAME, self._username)
