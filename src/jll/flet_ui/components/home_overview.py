@@ -63,7 +63,7 @@ def build_home_overview(
                 ft.Container(expand=True),
                 theme.text(
                     overview.date_label,
-                    theme.TextRole.PRIMARY,
+                    theme.TextRole.META,
                     color=header_color,
                     max_lines=1,
                 ),
@@ -94,7 +94,7 @@ def build_home_overview(
         return _card(controls)
 
     controls.append(ft.Container(height=theme.SPACING["sm"]))
-    controls.append(theme.text("DNEŠNÍ OBJEDNÁVKY", theme.TextRole.ACTION))
+    controls.append(theme.text("Dnešní objednávky", theme.TextRole.ACTION))
 
     if not overview.meals:
         controls.append(
