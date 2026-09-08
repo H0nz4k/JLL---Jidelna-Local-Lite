@@ -11,7 +11,9 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 Editable four-style typography:
 
 - přesně 4 role (PRIMARY/BODY/ACTION/META) s absolutní size + bold;
-- Administrace → Vzhled: editor velikosti/tučnosti, náhled, Obnovit/Uložit;
+- Administrace → Vzhled: editor velikosti/tučnosti, Obnovit/Uložit;
+- unsaved draft nevytváří extra font signatures (žádný `preview_style`);
+- sample = aktivní role, text „Po uložení“ popisuje draft;
 - persistence `typography` v `lab.json` (backward compatible);
 - odstraněn aktivní TextScale multiplier (100/115/130/150 % UI);
 - ACTION bold = W700 (žádné W500/W600); HOME „Dnešní objednávky“ sentence case.

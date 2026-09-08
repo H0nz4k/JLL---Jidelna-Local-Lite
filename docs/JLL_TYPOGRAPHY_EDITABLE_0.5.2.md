@@ -53,9 +53,29 @@ Proto:
 
 ## Administrace → Vzhled
 
-- 4 řádky: velikost + Tučně + live náhled
-- `Obnovit výchozí` jen draft
+- 4 řádky: velikost + Tučně
+- sample „Aktuální vzhled“ = běžná aktivní role (`theme.text(..., role)`), ne draft font
+- text „Po uložení: …“ popisuje draft bez nové signature
+- `Obnovit výchozí` jen draft formuláře
 - `Uložit` → validace → persist → `set_typography` → rebuild shell, zůstane Vzhled
+
+## STRICT RUNTIME RULE
+
+```text
+unique (font_family, size, weight) signatures <= 4
+at every moment of Flet runtime, including Administrace → Vzhled
+```
+
+Unsaved appearance drafts **nevytvářejí** font signatures.
+
+```text
+runtime role signatures: 4 max
+appearance draft extra signatures: 0
+arbitrary preview helper: NONE
+```
+
+Zakázané API: `preview_style(size, bold)`, `style_from_size_weight(...)`,
+`text_with_custom_size(...)`.
 
 ## Mapping (stručně)
 
@@ -97,3 +117,6 @@ Proto:
 - no active scale multiplier
 - unique signatures at default: 4
 - max signatures ever: ≤ 4
+- runtime role signatures: 4 max
+- appearance draft extra signatures: 0
+- arbitrary preview helper: NONE
