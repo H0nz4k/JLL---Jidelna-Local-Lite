@@ -91,8 +91,14 @@ Active nav: `accent_soft` background + left accent marker.
 | reports/serving content expand scroll | NECESSARY (scroll host); content already width-capped |
 | setup body | NECESSARY (wizard host) |
 
+## Typography follow-up (0.4.4)
+
+Od 0.4.4 platí tvrdé 4-role API (`docs/JLL_TYPOGRAPHY_SYSTEM_0.4.4.md`):
+size + weight + font family jen přes `theme.role_*`. Layout polish 0.4.3
+zůstává; typografie je oddělený kontrakt.
+
 ## Out of scope
 
 - Redesign Stav výdeje / Sestavy (už kompaktní).
 - Shell/navigation redesign.
-- Business/payment/ELATEC/order/serving write changes (kromě dříve požadovaného ručního odběru mimo časové okno).
+- Business/payment/ELATEC/order/serving write contracts (mimo dříve schválené UI/odběr změny).
