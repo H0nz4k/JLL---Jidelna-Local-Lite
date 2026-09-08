@@ -34,13 +34,16 @@ class AdminScreen:
         *,
         on_typography_save,
         on_activity=None,
+        on_installation_reset=None,
         initial_section: str = "Uživatelé",
     ) -> None:
         self.page = page
         self.state = state
-        self.vm = AdminViewModel(state)
         self.on_typography_save = on_typography_save
         self.on_activity = on_activity or (lambda: None)
+        self.on_installation_reset = on_installation_reset
+        self._reset_busy = False
+        self.vm = AdminViewModel(state)
         self.section = (
             initial_section if initial_section in SECTIONS else "Uživatelé"
         )
@@ -586,6 +589,28 @@ class AdminScreen:
                         theme.TextRole.META,
                     )
                 )
+        controls.append(ft.Divider(height=12, color=theme.COLORS["border"]))
+        controls.append(theme.text("Počáteční nastavení", theme.TextRole.ACTION))
+        controls.append(
+            theme.text(
+                "Vrátí tuto instalaci JLL do stavu prvního spuštění.\n"
+                "Databázová data zůstanou beze změny.\n"
+                "Lokální JLL profily a jejich JLL oprávnění budou vráceny do výchozího stavu.\n"
+                "Databázoví uživatelé v JídelnaSQL zůstanou beze změny.",
+                theme.TextRole.META,
+                color=theme.COLORS["text_secondary"],
+            )
+        )
+        controls.append(
+            ft.OutlinedButton(
+                "Obnovit počáteční nastavení",
+                style=theme.button_style(
+                    color=theme.COLORS["danger"],
+                    bgcolor=theme.COLORS["surface"],
+                ),
+                on_click=lambda _e: self._open_installation_reset_dialog(),
+            )
+        )
         self.body.controls.append(self._content_card("Info", controls))
 
         # Průběžná aktualizace hodin, dokud je sekce Info otevřená.
@@ -615,6 +640,109 @@ class AdminScreen:
                 self.page.run_thread(_apply)
 
         threading.Thread(target=_tick, name="jll-info-hours", daemon=True).start()
+
+    def _open_installation_reset_dialog(self) -> None:
+        self.on_activity()
+        if self.on_installation_reset is None:
+            message_dialog(
+                self.page,
+                title="Počáteční nastavení",
+                body="Obnovení není v této session dostupné.",
+            )
+            return
+        password = ft.TextField(
+            label="Heslo administrátora SUP",
+            password=True,
+            can_reveal_password=True,
+            text_size=theme.field_text_size(),
+            label_style=theme.field_label_style(),
+        )
+        confirm_btn = ft.FilledButton(
+            "Obnovit počáteční nastavení",
+            style=theme.button_style(bgcolor=theme.COLORS["danger"], color="#FFFFFF"),
+        )
+        dialog_holder: dict[str, ft.AlertDialog | None] = {"dialog": None}
+
+        def _close(_e=None) -> None:
+            dialog = dialog_holder["dialog"]
+            if dialog is None:
+                return
+            dialog.open = False
+            self.page.update()
+
+        def _confirm(_e=None) -> None:
+            if self._reset_busy:
+                return
+            self._reset_busy = True
+            confirm_btn.disabled = True
+            self.page.update()
+            try:
+                ok, error = self.on_installation_reset(password.value or "")
+            finally:
+                self._reset_busy = False
+            if ok:
+                _close()
+                return
+            confirm_btn.disabled = False
+            self.page.update()
+            message_dialog(
+                self.page,
+                title="Počáteční nastavení",
+                body=error
+                or "Obnovení počátečního nastavení se nepodařilo. "
+                "Původní nastavení bylo zachováno.",
+            )
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=theme.text("Obnovit počáteční nastavení?", theme.TextRole.PRIMARY),
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        theme.text(
+                            "JLL zapomene místní nastavení této instalace a znovu spustí "
+                            "průvodce prvním nastavením.",
+                            theme.TextRole.BODY,
+                        ),
+                        theme.text(
+                            "Bude resetováno:\n"
+                            "• připojení a volba stanice\n"
+                            "• povolené kategorie\n"
+                            "• nastavení čtečky\n"
+                            "• vzhled aplikace\n"
+                            "• lokální JLL profily a oprávnění",
+                            theme.TextRole.META,
+                            color=theme.COLORS["text_secondary"],
+                        ),
+                        theme.text(
+                            "NEBUDE změněno:\n"
+                            "• databáze strávníků\n"
+                            "• objednávky\n"
+                            "• platby\n"
+                            "• čipy\n"
+                            "• databázoví uživatelé",
+                            theme.TextRole.META,
+                            color=theme.COLORS["text_secondary"],
+                        ),
+                        password,
+                    ],
+                    tight=True,
+                    spacing=theme.SPACING["sm"],
+                    scroll=ft.ScrollMode.AUTO,
+                ),
+                width=480,
+                height=360,
+            ),
+            actions=[
+                ft.TextButton("Zrušit", style=theme.button_style(), on_click=_close),
+                confirm_btn,
+            ],
+        )
+        confirm_btn.on_click = _confirm
+        dialog_holder["dialog"] = dialog
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
 
     def _render_sup_gate(self) -> None:
         password = ft.TextField(

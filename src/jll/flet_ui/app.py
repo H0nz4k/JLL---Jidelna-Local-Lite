@@ -75,6 +75,7 @@ class FletAppController:
         page.theme_mode = ft.ThemeMode.LIGHT
         self._admin_last_activity = time.monotonic()
         self._admin_idle_stop = threading.Event()
+        self._reset_in_progress = False
         self._start_admin_idle_watch()
 
     def note_admin_activity(self) -> None:
@@ -85,6 +86,8 @@ class FletAppController:
 
         def _loop() -> None:
             while not stop.wait(5.0):
+                if self._reset_in_progress:
+                    continue
                 if self.state.route is not Route.ADMIN:
                     continue
                 business = self.state.business
@@ -97,6 +100,8 @@ class FletAppController:
         threading.Thread(target=_loop, name="jll-admin-idle", daemon=True).start()
 
     def _admin_idle_logout(self) -> None:
+        if self._reset_in_progress:
+            return
         if self.state.route is not Route.ADMIN:
             return
         business = self.state.business
@@ -224,6 +229,108 @@ class FletAppController:
         self.page.add(screen.control())
         self.page.update()
 
+    def _quiesce_runtime(self) -> None:
+        """Stop listeners/pool/services before wiping local install artifacts."""
+
+        self.state.stop_chip_listen()
+        previous = getattr(self, "_diners_screen", None)
+        if previous is not None and hasattr(previous, "dispose"):
+            try:
+                previous.dispose()
+            except Exception:
+                pass
+        self._diners_screen = None
+        business = self.state.business
+        if business is not None:
+            try:
+                business.lock_sup()
+            except Exception:
+                pass
+        pool = self.state.pool
+        if pool is not None:
+            try:
+                pool.close()
+            except Exception:
+                pass
+        self.state.pool = None
+        self.state.business = None
+        self.state.read_service = None
+        self.state.application_service = None
+        self.state.serving_service = None
+        self.state.diner_service = None
+        self.state.payment_history_service = None
+        self.state.payment_service = None
+        self.state.chip_command_service = None
+        self.state.chip_reader = None
+        self.state.diagnostics = None
+        self.state.business_calendar = None
+        self.state.selected_evidcislo = None
+        self.state.selected_day = None
+        self.state.search_query = ""
+        self.state.diner_results = []
+        self.state.status_message = ""
+
+    def enter_first_run(self) -> None:
+        """Same-process entry into existing SetupScreen (no second wizard)."""
+
+        logging.getLogger(__name__).info("entered first-run after installation reset")
+        self.state.needs_setup = True
+        self.state.config = None
+        self.state.identity_store = None
+        self.state.typography = DEFAULT_TYPOGRAPHY
+        theme.set_typography(DEFAULT_TYPOGRAPHY)
+        self._show_setup()
+
+    def reset_installation(self, sup_password: str) -> tuple[bool, str | None]:
+        """Fresh SUP reauth + local artifact reset + enter existing first-run."""
+
+        from ...installation_reset import (
+            InstallationResetError,
+            InstallationResetService,
+        )
+
+        if self._reset_in_progress:
+            return False, "Obnovení už probíhá."
+        business = self.state.business
+        if business is None or business.sup_store is None:
+            return False, "SUP ověření není dostupné."
+        if not business.sup_store.verify(sup_password):
+            return False, "Neplatné heslo administrátora."
+
+        self._reset_in_progress = True
+        try:
+            logging.getLogger(__name__).info("SUP reauth success for installation reset")
+            service = InstallationResetService()
+            plan = service.build_plan(
+                config_path=self.state.config_path,
+                identity_path=self.state.identity_path,
+            )
+            self._quiesce_runtime()
+            result = service.execute(plan)
+            logging.getLogger(__name__).info(
+                "installation reset backup path=%s already_clean=%s",
+                result.backup_dir,
+                result.already_clean,
+            )
+            self.enter_first_run()
+            return True, None
+        except InstallationResetError as exc:
+            return False, str(exc)
+        except Exception as exc:
+            logging.getLogger(__name__).exception("installation reset failed")
+            return (
+                False,
+                "Obnovení počátečního nastavení se nepodařilo. "
+                "Původní nastavení bylo zachováno."
+                if self.state.config_path.is_file()
+                else (
+                    "Obnovení se nepodařilo a stav instalace vyžaduje servisní kontrolu. "
+                    f"Detail: {exc}"
+                ),
+            )
+        finally:
+            self._reset_in_progress = False
+
     def _after_setup(self) -> None:
         self.state.needs_setup = False
         self._wire_runtime()
@@ -301,6 +408,7 @@ class FletAppController:
                 self.state,
                 on_typography_save=self._save_typography,
                 on_activity=self.note_admin_activity,
+                on_installation_reset=self.reset_installation,
                 initial_section=self.state.admin_section,
             ).control()
         return theme.text("Neznámá obrazovka", theme.TextRole.BODY)
