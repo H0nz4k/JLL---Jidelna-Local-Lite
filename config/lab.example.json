@@ -17,5 +17,7 @@
   "search_limit": 30,
   "reader_port": null,
   "reader_baud_rate": 19200,
-  "reader_line_end": "\r"
+  "reader_line_end": "\r",
+  "reader_ikonverze": false,
+  "reader_pridat00": false
 }

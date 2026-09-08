@@ -3,6 +3,11 @@
 Index technické dokumentace. Kořenový přehled projektu je v
 [../README.md](../README.md).
 
+## Pro kolegy (onboarding)
+
+- [JLL_KOLEGA_OVERVIEW.md](JLL_KOLEGA_OVERVIEW.md) – **co JLL je / není**,
+  funkce, stack, bezpečnost, roadmapa (s Mermaid diagramy).
+
 ## Aplikace a GUI
 
 - [JLL_GUI_LAB.md](JLL_GUI_LAB.md) – architektura GUI, responsivní layout,
@@ -10,8 +15,13 @@ Index technické dokumentace. Kořenový přehled projektu je v
 - [JLL_SETUP_IDENTITY_PERMISSIONS_ADMIN.md](JLL_SETUP_IDENTITY_PERMISSIONS_ADMIN.md)
   – setup wizard, identity store, oprávnění a administrace.
 - [JLL_CHIP_MODULE.md](JLL_CHIP_MODULE.md) – čipový modul a `ChipReader`.
+- [JLL_CHIP_IKONVERZE_PRIDAT00.md](JLL_CHIP_IKONVERZE_PRIDAT00.md) –
+  IKonverze / Pridat00 a doplnění na 16 znaků.
 - [JLL_PICKUP_STATUS.md](JLL_PICKUP_STATUS.md) – stav výdeje.
 - [JLL_REPORTS.md](JLL_REPORTS.md) – sestavy.
+- [JLL_FLET_ARCHITECTURE.md](JLL_FLET_ARCHITECTURE.md) – cílové Flet UI.
+- [JLL_INSTALLATION_RESET_SPEC_0.5.5.md](JLL_INSTALLATION_RESET_SPEC_0.5.5.md)
+  – reset lokální instalace / first-run.
 
 ## Objednávkové kontrakty
 

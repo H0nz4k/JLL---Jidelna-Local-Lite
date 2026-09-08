@@ -268,12 +268,24 @@ class AdminDialog(QDialog):
         self.reader_line_end.setToolTip(
             "Ukončení zprávy čtečky. Výchozí CR odpovídá referenčnímu protokolu."
         )
+        self.reader_ikonverze = QCheckBox("IKonverze (HEX → DEC dle JídelnaSQL)")
+        self.reader_ikonverze.setChecked(bool(self.config.reader_ikonverze))
+        self.reader_ikonverze.setToolTip(
+            "Upraví kód ze čtečky: 10 HEX znaků, drop 1. byte, reverse nibble → DEC."
+        )
+        self.reader_pridat00 = QCheckBox("Přidat 00 na konec (Pridat00)")
+        self.reader_pridat00.setChecked(bool(self.config.reader_pridat00))
+        self.reader_pridat00.setToolTip(
+            "Po IKonverzi (nebo na surový kód) připojí literál 00; výsledek pad na 16."
+        )
 
         layout_form.addRow("Stav:", self.reader_status)
         layout_form.addRow("Zařízení:", self.reader_device)
         layout_form.addRow("Port:", self.reader_port)
         layout_form.addRow("Baudrate:", self.reader_baud)
         layout_form.addRow("Ukončení zprávy:", self.reader_line_end)
+        layout_form.addRow("Úprava kódu:", self.reader_ikonverze)
+        layout_form.addRow("", self.reader_pridat00)
         layout_form.addRow("Poslední načtení:", self.reader_last)
         layout.addWidget(form_host)
 
@@ -360,6 +372,8 @@ class AdminDialog(QDialog):
                 port=self.reader_port.currentData(),
                 baud_rate=int(self.reader_baud.currentData()),
                 line_end=str(self.reader_line_end.currentData()),
+                ikonverze=self.reader_ikonverze.isChecked(),
+                pridat00=self.reader_pridat00.isChecked(),
             )
         except Exception as exc:
             QMessageBox.warning(self, "Nastavení nelze uložit", str(exc))
@@ -389,10 +403,19 @@ class AdminDialog(QDialog):
         )
         accepted = dialog.exec() == QDialog.Accepted
         if accepted and dialog.chip_read is not None:
-            self.reader_last.setText(
-                masked_chip_summary(dialog.chip_read.code)
-            )
-            self.reader_status.setText("Načtení proběhlo.")
+            raw = dialog.chip_read.code
+            try:
+                canonical = self.config.transform_chip_from_reader(raw)
+            except ValueError:
+                canonical = raw
+            self.reader_last.setText(masked_chip_summary(canonical))
+            if canonical != raw:
+                self.reader_status.setText(
+                    f"Načtení OK (upraveno {masked_chip_summary(raw)} → "
+                    f"{masked_chip_summary(canonical)})."
+                )
+            else:
+                self.reader_status.setText("Načtení proběhlo.")
         elif dialog.error_message:
             self.reader_status.setText(f"Test selhal: {dialog.error_message}")
         self._refresh_reader_view()

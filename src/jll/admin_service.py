@@ -127,6 +127,8 @@ class AdminService:
         device_serial: str | None = None,
         baud_rate: int,
         line_end: str,
+        ikonverze: bool | None = None,
+        pridat00: bool | None = None,
     ) -> LabConfig:
         """Uloží ne-secret nastavení čtečky do instalační konfigurace.
 
@@ -149,6 +151,16 @@ class AdminService:
             ),
             reader_baud_rate=int(baud_rate),
             reader_line_end=line_end,
+            reader_ikonverze=(
+                bool(ikonverze)
+                if ikonverze is not None
+                else self._lab_config.reader_ikonverze
+            ),
+            reader_pridat00=(
+                bool(pridat00)
+                if pridat00 is not None
+                else self._lab_config.reader_pridat00
+            ),
         )
         save_lab_config(updated, self._config_path)
         self._lab_config = updated

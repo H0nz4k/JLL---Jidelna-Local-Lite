@@ -41,6 +41,8 @@ class LabConfig:
     reader_device_serial: str | None = None
     reader_baud_rate: int = 19_200
     reader_line_end: str = "\r"
+    reader_ikonverze: bool = False
+    reader_pridat00: bool = False
 
     def __post_init__(self) -> None:
         if not self.site_name.strip():
@@ -90,8 +92,23 @@ class LabConfig:
             raise ValueError("reader_baud_rate není platná.")
         if self.reader_line_end not in {"\r", "\n", "\r\n"}:
             raise ValueError("reader_line_end musí být CR, LF nebo CRLF.")
+        if not isinstance(self.reader_ikonverze, bool):
+            raise ValueError("reader_ikonverze musí být boolean.")
+        if not isinstance(self.reader_pridat00, bool):
+            raise ValueError("reader_pridat00 musí být boolean.")
         object.__setattr__(self, "allowed_categories", categories)
         assert_configured_lab(self.order_settings)
+
+    def transform_chip_from_reader(self, raw: str) -> str:
+        """Upraví kód ze čtečky dle IKonverze / Pridat00 a doplní na 16 znaků."""
+
+        from .chip_code_transform import transform_reader_chip_code
+
+        return transform_reader_chip_code(
+            raw,
+            ikonverze=self.reader_ikonverze,
+            pridat00=self.reader_pridat00,
+        )
 
     @property
     def order_settings(self) -> OrderServiceSettings:
@@ -213,6 +230,8 @@ def load_lab_config(path: str | Path) -> LabConfig:
         ),
         reader_baud_rate=int(raw.get("reader_baud_rate", 19_200)),
         reader_line_end=str(raw.get("reader_line_end", "\r")),
+        reader_ikonverze=bool(raw.get("reader_ikonverze", False)),
+        reader_pridat00=bool(raw.get("reader_pridat00", False)),
     )
 
 
@@ -238,6 +257,8 @@ def save_lab_config(config: LabConfig, path: str | Path) -> None:
         "reader_device_serial": config.reader_device_serial,
         "reader_baud_rate": config.reader_baud_rate,
         "reader_line_end": config.reader_line_end,
+        "reader_ikonverze": config.reader_ikonverze,
+        "reader_pridat00": config.reader_pridat00,
     }
     handle, temporary_name = tempfile.mkstemp(
         prefix=f".{target.name}.",

@@ -179,6 +179,33 @@ def test_reader_settings_save_only_to_local_installation_config(
     assert stored["instance_id"] == "DEMO-LAB01"
 
 
+def test_reader_settings_persist_ikonverze_flags(tmp_path: Path) -> None:
+    path = tmp_path / "lab.json"
+    save_lab_config(config(), path)
+    service = admin_service(
+        tmp_path,
+        frozenset(Permission),
+        config_path=path,
+    )
+    service.reauthenticate("2468")
+    updated = service.save_reader_settings(
+        mode="manual",
+        port="COM5",
+        baud_rate=19_200,
+        line_end="\r",
+        ikonverze=True,
+        pridat00=True,
+    )
+    assert updated.reader_ikonverze is True
+    assert updated.reader_pridat00 is True
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    assert stored["reader_ikonverze"] is True
+    assert stored["reader_pridat00"] is True
+    reloaded = load_lab_config(path)
+    assert reloaded.reader_ikonverze is True
+    assert reloaded.reader_pridat00 is True
+
+
 def test_reader_settings_reject_invalid_values(tmp_path: Path) -> None:
     path = tmp_path / "lab.json"
     save_lab_config(config(), path)

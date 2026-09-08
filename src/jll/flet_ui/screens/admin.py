@@ -374,6 +374,16 @@ class AdminScreen:
             text_size=theme.field_text_size(),
             label_style=theme.field_label_style(),
         )
+        ikonverze_cb = ft.Checkbox(
+            label="IKonverze (HEX → DEC dle JídelnaSQL)",
+            value=bool(cfg.reader_ikonverze),
+            label_style=theme.role_style(theme.TextRole.BODY),
+        )
+        pridat00_cb = ft.Checkbox(
+            label="Přidat 00 na konec (Pridat00)",
+            value=bool(cfg.reader_pridat00),
+            label_style=theme.role_style(theme.TextRole.BODY),
+        )
 
         def _on_mode_change(_e=None) -> None:
             port_dd.disabled = mode_group.value != "manual"
@@ -400,6 +410,8 @@ class AdminScreen:
                     reader_device_serial=cfg.reader_device_serial,
                     reader_baud_rate=int(baud_dd.value or 19200),
                     reader_line_end=line_map.get(line_dd.value or "CR", "\r"),
+                    reader_ikonverze=bool(ikonverze_cb.value),
+                    reader_pridat00=bool(pridat00_cb.value),
                 )
                 if Permission.ADMIN_READER not in business.current_policy().permissions:
                     message_dialog(
@@ -443,10 +455,20 @@ class AdminScreen:
             try:
                 test_reader.start()
                 chip = test_reader.read_once(timeout_seconds=8.0)
+                raw = chip.code
+                canonical = (
+                    cfg.transform_chip_from_reader(raw)
+                    if self.state.config is not None
+                    else raw
+                )
+                body = f"Načteno (raw): ••••{raw[-4:]}\n"
+                if canonical != raw:
+                    body += f"Po úpravě: ••••{canonical[-4:]}\n"
+                body += f"Port: {chip.device.port or '—'}"
                 message_dialog(
                     self.page,
                     title="Test čtečky",
-                    body=f"Načteno: ••••{chip.code[-4:]}\nPort: {chip.device.port or '—'}",
+                    body=body,
                 )
             except Exception as exc:
                 message_dialog(self.page, title="Test čtečky", body=str(exc))
@@ -484,6 +506,19 @@ class AdminScreen:
                 port_dd,
                 baud_dd,
                 line_dd,
+                theme.text(
+                    "Úprava kódu ze čtečky",
+                    theme.TextRole.META,
+                    color=theme.COLORS["text_secondary"],
+                ),
+                theme.text(
+                    "Pokud je zapnuté IKonverze a/nebo Přidat 00, JLL upraví "
+                    "vstup ze čtečky před lookupem a zápisem (DB formát 16 znaků).",
+                    theme.TextRole.META,
+                    color=theme.COLORS["text_secondary"],
+                ),
+                ikonverze_cb,
+                pridat00_cb,
                 ft.Row(
                     [
                         ft.FilledButton(

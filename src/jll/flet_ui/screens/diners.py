@@ -283,6 +283,17 @@ class DinersScreen:
                 except Exception:
                     break
                 code = chip.code
+                cfg = self.state.config
+                if cfg is not None:
+                    try:
+                        code = cfg.transform_chip_from_reader(code)
+                    except ValueError as exc:
+                        self.page.run_thread(
+                            lambda m=str(exc): message_dialog(
+                                self.page, title="Čip", body=m
+                            )
+                        )
+                        continue
                 self.page.run_thread(lambda c=code: self._on_chip_code(c))
             try:
                 reader.stop()
@@ -1931,10 +1942,18 @@ class DinersScreen:
             from ...diner_models import ChipCommand
 
             actor, version = self._actor_bits()
+            raw_code = code_field.value or ""
+            cfg = self.state.config
+            if cfg is not None and (cfg.reader_ikonverze or cfg.reader_pridat00):
+                try:
+                    raw_code = cfg.transform_chip_from_reader(raw_code)
+                except ValueError as exc:
+                    message_dialog(self.page, title="Přidělit čip", body=str(exc))
+                    return
             try:
                 service.assign(
                     ChipCommand(
-                        chip_code=code_field.value or "",
+                        chip_code=raw_code,
                         evidcislo=self._day.diner.evidcislo,
                         actor=actor,
                         client_version=version,

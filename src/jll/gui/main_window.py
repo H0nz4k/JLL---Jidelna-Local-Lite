@@ -859,7 +859,14 @@ class MainWindow(QMainWindow):
             if dialog.error_message:
                 self.statusBar().showMessage(dialog.error_message, 8000)
             return
-        self._lookup_chip(dialog.chip_read.code)
+        code = dialog.chip_read.code
+        if self.config is not None:
+            try:
+                code = self.config.transform_chip_from_reader(code)
+            except ValueError as exc:
+                self._show_error(exc)
+                return
+        self._lookup_chip(code)
 
     def _lookup_chip(self, code: str) -> None:
         self._chip_lookup_generation += 1

@@ -10,8 +10,10 @@
   serial-line protokol, bounded timeout, cancellation, reconnect a
   diagnostika z OS enumerace portů.
 - Admin záložka **Čtečka**: stav, zařízení, maskované poslední načtení,
-  výběr COM portu z OS enumerace, baudrate, ukončení řádku, uložení
-  nastavení a modální test čtečky.
+  výběr COM portu z OS enumerace, baudrate, ukončení řádku, přepínače
+  **IKonverze** / **Pridat00**, uložení nastavení a modální test čtečky.
+  Transformace kódu ze čtečky: `jll.chip_code_transform` /
+  [`JLL_CHIP_IKONVERZE_PRIDAT00.md`](JLL_CHIP_IKONVERZE_PRIDAT00.md).
 - Hlavní obrazovka: tlačítko **Identifikovat čip** u vyhledávacího pole.
 - karta strávníka: všechny řádky `public.cipy` patřící scope-safe vybranému
   strávníkovi; nedoložené stavové kódy jsou tak označené.
