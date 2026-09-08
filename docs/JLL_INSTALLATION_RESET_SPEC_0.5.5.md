@@ -9,6 +9,10 @@ Administrace → Info → **Obnovit počáteční nastavení** safely forgets *l
 JLL install state and re-enters the **same** existing first-run wizard
 (`SetupScreen` / `SetupViewModel`).
 
+Info layout (0.5.6+): reset block stays near the top (after Databáze/Stanice);
+changelog opens via **Zobrazit changelog** modal so growing version history
+does not push the reset action down.
+
 ## Reset scope (local only)
 
 May remove/clear:

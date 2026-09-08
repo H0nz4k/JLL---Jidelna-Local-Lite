@@ -6,6 +6,19 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.5.6] – 2026-09-09
+
+Administrace → Info layout polish:
+
+- Sekce **Počáteční nastavení** je hned pod Databáze/Stanice, aby reset
+  nesjížděl dolů s rostoucím changelogem.
+- Changelog je tlačítko **Zobrazit changelog** a náhled se otevírá v modalu
+  (až 20 verzí), ne inline v Info stránce.
+
+### Changed
+
+- Canonical verze `0.5.6`.
+
 ## [0.5.5] – 2026-09-09
 
 Installation reset / first-run restart:

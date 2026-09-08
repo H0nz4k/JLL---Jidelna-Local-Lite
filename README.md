@@ -37,7 +37,7 @@ deadline, exkluzivitu variant a audit.
 
 ## Aktuální stav
 
-Verze `0.5.5` (Flet desktop UX). Aplikace se spouští pouze proti lokální
+Verze `0.5.6` (Flet desktop UX). Aplikace se spouští pouze proti lokální
 testovací databázi, jejíž identitu ověřuje LAB guard. Cílové UI je Flet;
 PySide6 zůstává referenční. Backend, identity, oprávnění, objednávkový
 write, create/edit strávníka, chip lifecycle (deposit=0), historie /
@@ -139,7 +139,7 @@ Denní sestava ve Flet UI: záložky `Souhrn kategorií` / `Normy` /
 - Vedoucí kuchyně (`BusinessSession`): bypass standardních deadline
   přihlášek/odhlášek (`bypass_order_deadlines`) pro provozní Flet session;
   nevarné dny zůstávají zakázané.
-- Administrace: Info = Databáze + Stanice + Audit.
+- Administrace: Info = Databáze + Stanice + reset + changelog (modal) + Audit.
 
 ## Bezpečnostní model
 
