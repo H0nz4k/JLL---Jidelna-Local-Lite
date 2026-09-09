@@ -141,16 +141,27 @@ class OrderService:
         datum: date,
         intended: Iterable[IntendedDayState],
         committed_version,
+        exclusive_peers: Mapping[str, frozenset[str]] | None = None,
+        finance_consistent: bool | None = None,
     ):
         """Druhé ověření po COMMITu (settle window) — bez zápisu."""
 
         intended_tuple = tuple(intended)
         types = [item.typstravy for item in intended_tuple]
+        if exclusive_peers:
+            for typ, peers in exclusive_peers.items():
+                if typ not in types:
+                    types.append(typ)
+                for peer in peers:
+                    if peer not in types:
+                        types.append(peer)
         after = self.read_version(evidcislo, datum.year, datum.month, types)
         return evaluate_post_commit(
             before=committed_version,
             after=after,
             intended=intended_tuple,
+            exclusive_peers=exclusive_peers,
+            finance_consistent=finance_consistent,
         )
 
     def _execute_once(self, command: OrderCommand) -> OrderResult:

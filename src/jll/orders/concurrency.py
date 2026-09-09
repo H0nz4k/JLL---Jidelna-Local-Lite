@@ -226,6 +226,8 @@ def evaluate_post_commit(
     before: OrderVersionToken,
     after: OrderVersionToken,
     intended: Sequence[IntendedDayState],
+    exclusive_peers: Mapping[str, frozenset[str]] | None = None,
+    finance_consistent: bool | None = None,
 ) -> PostCommitProbe:
     after_map = after.by_type()
     violated: list[IntendedDayState] = []
@@ -251,6 +253,44 @@ def evaluate_post_commit(
             intended=tuple(intended),
             violated=tuple(violated),
         )
+
+    consistency_reasons: list[str] = []
+    if exclusive_peers:
+        for item in intended:
+            day_idx = item.day - 1
+            ordered_types = {
+                typ: row
+                for typ, row in after_map.items()
+                if 0 <= day_idx < len(row.day_states)
+                and row.day_states[day_idx] is not None
+                and str(row.day_states[day_idx]).isdigit()
+            }
+            for typ in ordered_types:
+                peers = exclusive_peers.get(typ, frozenset())
+                clash = sorted(peer for peer in peers if peer in ordered_types)
+                if clash:
+                    consistency_reasons.append(
+                        f"vyloucenos konflikt: {typ} vs {', '.join(clash)}"
+                    )
+                    break
+            if consistency_reasons:
+                break
+    if finance_consistent is False:
+        consistency_reasons.append("order/finance nekonzistence po cizím zápisu")
+
+    if consistency_reasons:
+        return PostCommitProbe(
+            status=ProbeStatus.CONSISTENCY,
+            message=(
+                "Po uložení byla zjištěna nekonzistence objednávky "
+                f"({'; '.join(consistency_reasons)}). "
+                "Zobrazuji aktuální stav databáze. Automatická oprava se neprovádí."
+            ),
+            before_fingerprint=before.fingerprint(),
+            after_fingerprint=after.fingerprint(),
+            intended=tuple(intended),
+        )
+
     if markers_changed:
         return PostCommitProbe(
             status=ProbeStatus.EXTERNAL_OK,
