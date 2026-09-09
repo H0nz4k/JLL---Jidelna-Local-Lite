@@ -37,7 +37,7 @@ deadline, exkluzivitu variant a audit.
 
 ## Aktuální stav
 
-Verze `0.5.8` (Flet desktop UX). Aplikace se spouští pouze proti lokální
+Verze `0.6.0` (PySide6 production candidate). Aplikace se spouští pouze proti lokální
 testovací databázi, jejíž identitu ověřuje LAB guard. Cílové UI je Flet;
 PySide6 zůstává referenční. Backend, identity, oprávnění, objednávkový
 write, create/edit strávníka, chip lifecycle (deposit=0), historie /

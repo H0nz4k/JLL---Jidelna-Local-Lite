@@ -30,6 +30,50 @@ def assert_configured_lab(settings: LabTargetSettings) -> None:
         )
 
 
+def assert_configured_production(settings: LabTargetSettings) -> None:
+    """Production guard — bez loopback/`jll_` požadavků; System ID zůstává."""
+
+    from .orders.errors import ErrorCode, OrderBusinessError
+
+    if settings.environment.strip().lower() != "production":
+        raise OrderBusinessError(
+            ErrorCode.LAB_GUARD_FAILED,
+            "Konfigurace není označená jako production.",
+        )
+    if not settings.db_host.strip():
+        raise OrderBusinessError(
+            ErrorCode.LAB_GUARD_FAILED,
+            "Production vyžaduje neprázdný db host.",
+        )
+    if not settings.db_name.strip():
+        raise OrderBusinessError(
+            ErrorCode.LAB_GUARD_FAILED,
+            "Production vyžaduje neprázdný název databáze.",
+        )
+    ident = settings.expected_system_identifier.strip()
+    if not ident or not ident.isdigit():
+        raise OrderBusinessError(
+            ErrorCode.LAB_GUARD_FAILED,
+            "Production vyžaduje číselný expected_system_identifier.",
+        )
+
+
+def assert_configured_environment(settings: LabTargetSettings) -> None:
+    env = settings.environment.strip().lower()
+    if env == "lab":
+        assert_configured_lab(settings)
+        return
+    if env == "production":
+        assert_configured_production(settings)
+        return
+    from .orders.errors import ErrorCode, OrderBusinessError
+
+    raise OrderBusinessError(
+        ErrorCode.LAB_GUARD_FAILED,
+        "Nepodporovaný environment (povolené: lab, production).",
+    )
+
+
 def assert_lab_identity(
     settings: LabTargetSettings,
     identity: Mapping[str, Any],
@@ -57,3 +101,37 @@ def assert_lab_identity(
             ErrorCode.LAB_GUARD_FAILED,
             "Připojená databáze nesplňuje lokální LAB guard.",
         )
+
+
+def assert_production_identity(
+    settings: LabTargetSettings,
+    identity: Mapping[str, Any],
+) -> None:
+    from .orders.errors import ErrorCode, OrderBusinessError
+
+    assert_configured_production(settings)
+    actual_name = str(identity.get("database_name") or "")
+    if actual_name != settings.db_name.strip():
+        raise OrderBusinessError(
+            ErrorCode.LAB_GUARD_FAILED,
+            "Připojená databáze neodpovídá production konfiguraci.",
+        )
+    if (
+        str(identity.get("system_identifier") or "")
+        != settings.expected_system_identifier
+    ):
+        raise OrderBusinessError(
+            ErrorCode.LAB_GUARD_FAILED,
+            "System Identifier neodpovídá production pinu.",
+        )
+
+
+def assert_runtime_identity(
+    settings: LabTargetSettings,
+    identity: Mapping[str, Any],
+) -> None:
+    env = settings.environment.strip().lower()
+    if env == "production":
+        assert_production_identity(settings, identity)
+        return
+    assert_lab_identity(settings, identity)

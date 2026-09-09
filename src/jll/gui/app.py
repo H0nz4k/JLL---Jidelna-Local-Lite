@@ -22,20 +22,17 @@ from ..config import load_lab_config
 from ..identity_store import IdentityStore
 from ..orders.service import OrderService
 from ..read_service import OrderReadService
+from ..runtime_paths import resolve_runtime_paths
 from ..session import AuthService, SessionManager
+from ..version import application_version
 from . import theme
 from .login_dialog import LoginDialog
 from .main_window import MainWindow
 from .setup_wizard import SetupWizard
 from .theme import TextRole
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_CONFIG = PROJECT_ROOT / "config" / "lab.json"
-DEFAULT_IDENTITY = PROJECT_ROOT / "config" / "users.lab.json"
-DEFAULT_LOG = PROJECT_ROOT / "logs" / "jll-lab.log"
 
-
-def configure_logging(path: Path = DEFAULT_LOG) -> None:
+def configure_logging(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     handler = RotatingFileHandler(
         path,
@@ -54,16 +51,22 @@ def configure_logging(path: Path = DEFAULT_LOG) -> None:
 
 
 class BlockedWindow(QMainWindow):
-    def __init__(self, message: str) -> None:
+    def __init__(self, message: str, *, production: bool = False) -> None:
         super().__init__()
-        self.setWindowTitle("JidelnaLocalLite – LAB BLOKOVÁNO")
+        title = (
+            "JidelnaLocalLite – BLOKOVÁNO"
+            if production
+            else "JidelnaLocalLite – LAB BLOKOVÁNO"
+        )
+        self.setWindowTitle(title)
         self.resize(720, 260)
         root = QWidget()
         layout = QVBoxLayout(root)
-        banner = QLabel("LAB – LOKÁLNÍ TESTOVACÍ DATABÁZE")
-        banner.setProperty("tone", "labBanner")
-        theme.apply_role(banner, TextRole.ACTION)
-        layout.addWidget(banner)
+        if not production:
+            banner = QLabel("LAB – LOKÁLNÍ TESTOVACÍ DATABÁZE")
+            banner.setProperty("tone", "labBanner")
+            theme.apply_role(banner, TextRole.ACTION)
+            layout.addWidget(banner)
         blocked = QLabel("APLIKACE JE BLOKOVÁNA")
         blocked.setProperty("tone", "danger")
         theme.apply_role(blocked, TextRole.PRIMARY)
@@ -138,19 +141,47 @@ def build_window(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="JLL PySide6 LAB GUI")
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
-    parser.add_argument("--identity-store", type=Path, default=DEFAULT_IDENTITY)
+    parser = argparse.ArgumentParser(description="JidelnaLocalLite desktop client")
+    parser.add_argument("--config", type=Path, default=None)
+    parser.add_argument("--identity-store", type=Path, default=None)
+    parser.add_argument("--log", type=Path, default=None)
+    parser.add_argument(
+        "--lab",
+        action="store_true",
+        help="Vynutit LAB cesty (repo config/), i ve frozen buildu.",
+    )
+    parser.add_argument(
+        "--version",
+        action="store_true",
+        help="Vypíše verzi a skončí.",
+    )
     args = parser.parse_args(argv)
-    configure_logging()
-    logging.getLogger(__name__).info("JLL LAB GUI start")
+    if args.version:
+        print(application_version())
+        return 0
+
+    paths = resolve_runtime_paths(
+        config=args.config,
+        identity=args.identity_store,
+        log=args.log,
+        force_lab=bool(args.lab),
+    )
+    configure_logging(paths.log_path)
+    logging.getLogger(__name__).info(
+        "JLL GUI start version=%s env_hint=%s config=%s",
+        application_version(),
+        paths.environment_hint,
+        paths.config_path,
+    )
     app = QApplication(sys.argv[:1])
     theme.apply_theme(app)
-    config_path = args.config.resolve()
-    identity_path = args.identity_store.resolve()
+    config_path = paths.config_path.resolve()
+    identity_path = paths.identity_path.resolve()
+    production = paths.environment_hint == "production"
     try:
         try:
             config = load_lab_config(config_path)
+            production = config.environment.strip().lower() == "production"
         except Exception:
             config = None
         store = IdentityStore(identity_path)
@@ -165,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             config = load_lab_config(config_path)
             store = IdentityStore(identity_path)
+            production = config.environment.strip().lower() == "production"
         auth = AuthService(store)
         login = LoginDialog(config, auth)
         if login.exec() != QDialog.Accepted or login.selected_user is None:
@@ -176,12 +208,18 @@ def main(argv: list[str] | None = None) -> int:
         )
     except Exception as exc:
         logging.getLogger(__name__).exception(
-            "LAB config startup blocked error=%s", type(exc).__name__
+            "config startup blocked error=%s", type(exc).__name__
         )
-        window = BlockedWindow(
-            "LAB konfiguraci nelze bezpečně načíst. "
-            "Opravte config/lab.json a aplikaci spusťte znovu."
+        message = (
+            "Konfiguraci nelze bezpečně načíst. "
+            "Opravte konfigurační soubor a aplikaci spusťte znovu."
+            if production
+            else (
+                "LAB konfiguraci nelze bezpečně načíst. "
+                "Opravte config/lab.json a aplikaci spusťte znovu."
+            )
         )
+        window = BlockedWindow(message, production=production)
     window.show()
     if isinstance(window, MainWindow):
         app.aboutToQuit.connect(window.connection_pool.close)

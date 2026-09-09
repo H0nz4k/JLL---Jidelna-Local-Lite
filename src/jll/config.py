@@ -15,7 +15,7 @@ from psycopg_pool import ConnectionPool
 from keyring.errors import KeyringError
 
 from .identity import IDENTIFIER_PATTERN
-from .lab_guard import assert_configured_lab
+from .lab_guard import assert_configured_environment
 from .orders.models import OrderServiceSettings
 
 ConnectionFactory = Callable[[], Connection[Any]]
@@ -97,7 +97,7 @@ class LabConfig:
         if not isinstance(self.reader_pridat00, bool):
             raise ValueError("reader_pridat00 musí být boolean.")
         object.__setattr__(self, "allowed_categories", categories)
-        assert_configured_lab(self.order_settings)
+        assert_configured_environment(self.order_settings)
 
     def transform_chip_from_reader(self, raw: str) -> str:
         """Upraví kód ze čtečky dle IKonverze / Pridat00 a doplní na 16 znaků."""

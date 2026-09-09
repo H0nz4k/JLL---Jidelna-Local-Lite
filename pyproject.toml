@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jidelna-local-lite"
-version = "0.5.8"
+version = "0.6.0"
 description = "LAB backend services for JidelnaLocalLite"
 requires-python = ">=3.11"
 dependencies = [
@@ -23,6 +23,9 @@ test = [
     "pytest-qt>=4.5.0,<5",
 ]
 pdf = [
+    "reportlab>=4.2,<5",
+]
+production = [
     "reportlab>=4.2,<5",
 ]
 

@@ -6,6 +6,23 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.6.0] – 2026-09-09
+
+První Windows production candidate (PySide6):
+
+- Explicitní `lab` / `production` environment guards (System ID pin,
+  production bez loopback/`jll_` požadavku).
+- Runtime paths: ProgramData layout pro frozen build
+  (`jll.runtime_paths`).
+- Packaging: PyInstaller onedir + Inno Setup scaffold
+  (`tools/build_windows_release.sh`).
+- Docs: `docs/WINDOWS_PRODUCTION_RELEASE_0.6.0.md`.
+- Staví na 0.5.8 multi-writer coexistence.
+
+### Changed
+
+- Canonical verze `0.6.0`.
+
 ## [0.5.8] – 2026-09-09
 
 Safe multi-writer coexistence (orders):

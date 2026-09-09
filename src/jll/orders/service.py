@@ -11,7 +11,7 @@ from typing import Any
 import psycopg
 from psycopg import Connection
 
-from ..lab_guard import assert_lab_identity
+from ..lab_guard import assert_runtime_identity
 from .audit import audit_price, transition_note, validate_audit_command
 from .concurrency import (
     IntendedDayState,
@@ -381,7 +381,7 @@ class OrderService:
             )
 
     def _assert_lab_guard(self, repository: OrderRepository) -> None:
-        assert_lab_identity(self.settings, repository.lab_identity())
+        assert_runtime_identity(self.settings, repository.lab_identity())
 
     @staticmethod
     def _relation_codes(value: str | None) -> set[str]:
