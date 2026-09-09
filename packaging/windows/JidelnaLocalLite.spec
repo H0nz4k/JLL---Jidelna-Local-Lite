@@ -11,7 +11,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
 
 block_cipher = None
 
@@ -29,6 +29,9 @@ hiddenimports: list[str] = [
     "keyring.backends",
     "keyring.backends.Windows",
 ]
+
+# Keep importlib.metadata version() working in the frozen EXE.
+datas += copy_metadata("jidelna-local-lite")
 
 for package in ("PySide6", "shiboken6"):
     pkg_datas, pkg_binaries, pkg_hidden = collect_all(package)
