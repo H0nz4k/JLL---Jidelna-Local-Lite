@@ -23,7 +23,7 @@ def test_diner_open_uses_server_today_not_accounting_month() -> None:
     )
     read = MagicMock()
     read.server_today.return_value = date(2026, 9, 7)
-    read.load_diner_day.return_value = MagicMock()
+    read.load_diner_day_snapshot.return_value = MagicMock()
     state.read_service = read
 
     vm = DinersViewModel(state)
@@ -33,6 +33,6 @@ def test_diner_open_uses_server_today_not_accounting_month() -> None:
 
     vm.select_diner(42)
     assert state.selected_day == date(2026, 9, 7)
-    read.load_diner_day.assert_called_once_with(42, date(2026, 9, 7))
+    read.load_diner_day_snapshot.assert_called_once_with(42, date(2026, 9, 7))
     assert state.selected_day != date(2026, 8, 1)
     assert state.selected_day.month != state.business_calendar.period_month

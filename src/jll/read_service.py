@@ -20,7 +20,7 @@ from .orders.preflight import (
     deadline_fields,
     decimal_from_db,
 )
-from .orders.repository import DAY_COLUMNS
+from .orders.repository import DAY_COLUMNS, OrderRepository
 from .policy import Permission, SessionPolicy
 from .read_models import (
     ActionAvailability,
@@ -29,6 +29,7 @@ from .read_models import (
     ChipIdentification,
     DailyReport,
     DinerDay,
+    DinerDaySnapshot,
     DinerChip,
     DinerDetail,
     DinerFinance,
@@ -1189,6 +1190,13 @@ class OrderReadService:
                 ]
 
     def load_diner_day(self, evidcislo: int, target: date) -> DinerDay:
+        return self.load_diner_day_snapshot(evidcislo, target).day
+
+    def load_diner_day_snapshot(
+        self, evidcislo: int, target: date
+    ) -> DinerDaySnapshot:
+        """Načte DinerDay a OrderVersionToken ve stejné REPEATABLE READ transakci."""
+
         if isinstance(evidcislo, bool) or not isinstance(evidcislo, int):
             raise ValueError("evidcislo musí být celé číslo.")
         if not isinstance(target, date):
@@ -1219,7 +1227,16 @@ class OrderReadService:
                     target,
                     server_now,
                 )
-                return DinerDay(diner, target, server_now, meals)
+                day = DinerDay(diner, target, server_now, meals)
+                write_repo = OrderRepository(connection)
+                order_version = write_repo.fetch_order_version(
+                    evidcislo=evidcislo,
+                    year=target.year,
+                    month=target.month,
+                    meal_types=[meal.meal_type for meal in meals],
+                    for_update=False,
+                )
+                return DinerDaySnapshot(day=day, order_version=order_version)
 
     def _load_diner(
         self,

@@ -554,11 +554,18 @@ class DinersScreen:
             return
         # 4) už HOME → no-op
 
+    def apply_snapshot(self, snapshot: DinerDaySnapshot) -> None:
+        """Nastaví den a version token ze stejného DB snapshotu."""
+
+        self._day = snapshot.day
+        self._order_version = snapshot.order_version
+        self._order_fingerprint = snapshot.order_version.fingerprint()
+
     def _open(self, evidcislo: int) -> None:
         self.note_activity()
         try:
-            self._day = self.vm.select_diner(evidcislo)
-            self._capture_order_version(self._day)
+            snapshot = self.vm.select_diner(evidcislo)
+            self.apply_snapshot(snapshot)
         except Exception as exc:
             message_dialog(self.page, title="Strávník", body=str(exc))
             return
@@ -576,9 +583,10 @@ class DinersScreen:
         day = self._day
         if day is not None and self._order_version is None:
             try:
-                self._capture_order_version(day)
+                self._reload_day_snapshot()
+                day = self._day
             except Exception:
-                LOGGER.exception("order version capture failed")
+                LOGGER.exception("order snapshot capture failed")
         assert day is not None
         diner = day.diner
         edit = self.state.diner_edit_state()
@@ -1038,8 +1046,9 @@ class DinersScreen:
             return
         if refreshed is None:
             return
-        self._day = refreshed
+        self.apply_snapshot(refreshed)
         self._render_detail()
+        self._arm_order_marker_poll()
         self.focus_search()
 
     def _month_grid(self, day: DinerDay) -> ft.Control:
@@ -1193,8 +1202,10 @@ class DinersScreen:
         current = self._day.target_date
         target = date(current.year, current.month, day_num)
         try:
-            self._day = self.vm.set_day(target)
-            self._capture_order_version(self._day)
+            snapshot = self.vm.set_day(target)
+            if snapshot is None:
+                return
+            self.apply_snapshot(snapshot)
         except Exception as exc:
             message_dialog(self.page, title="Den", body=str(exc))
             return
@@ -1202,9 +1213,12 @@ class DinersScreen:
         self._arm_order_marker_poll()
         self.focus_search()
 
-    def _capture_order_version(self, day: DinerDay) -> None:
-        self._order_version = self.vm.read_order_version(day)
-        self._order_fingerprint = self._order_version.fingerprint()
+    def _reload_day_snapshot(self) -> None:
+        if self._day is None:
+            return
+        snapshot = self.vm.set_day(self._day.target_date)
+        if snapshot is not None:
+            self.apply_snapshot(snapshot)
 
     def _stop_order_marker_poll(self) -> None:
         self._order_poll_stop.set()
@@ -1225,24 +1239,24 @@ class DinersScreen:
                 if self._order_poll_paused or self._day is None:
                     continue
                 try:
-                    version = self.vm.read_order_version(self._day)
+                    snapshot = self.vm.set_day(self._day.target_date)
                 except Exception:
                     LOGGER.exception("order marker poll failed")
                     continue
-                fingerprint = version.fingerprint()
+                if snapshot is None:
+                    continue
+                fingerprint = snapshot.order_version.fingerprint()
                 if (
                     self._order_fingerprint is not None
                     and fingerprint != self._order_fingerprint
                 ):
                     evid = self._day.diner.evidcislo
 
-                    def _apply(e=evid, v=version, fp=fingerprint) -> None:
+                    def _apply(e=evid, snap=snapshot) -> None:
                         if self._day is None or self._day.diner.evidcislo != e:
                             return
                         try:
-                            self._day = self.vm.set_day(self._day.target_date)
-                            self._order_version = v
-                            self._order_fingerprint = fp
+                            self.apply_snapshot(snap)
                             self._render_detail()
                             self.page.update()
                             message_dialog(
@@ -1258,8 +1272,7 @@ class DinersScreen:
 
                     self.page.run_thread(_apply)
                 else:
-                    self._order_version = version
-                    self._order_fingerprint = fingerprint
+                    self.apply_snapshot(snapshot)
 
         threading.Thread(target=_loop, name="jll-order-marker-poll", daemon=True).start()
 
@@ -1312,16 +1325,14 @@ class DinersScreen:
                         or ERROR_TEXTS[ErrorCode.ORDER_EXTERNAL_CHANGE],
                     )
                     try:
-                        self._day = self.vm.set_day(self._day.target_date)
-                        self._capture_order_version(self._day)
+                        self._reload_day_snapshot()
                         self._render_detail()
                         self.page.update()
                     except Exception as exc:
                         message_dialog(self.page, title="Objednávka", body=str(exc))
                 elif probe.status is ProbeStatus.EXTERNAL_OK and probe.message:
                     try:
-                        self._day = self.vm.set_day(self._day.target_date)
-                        self._capture_order_version(self._day)
+                        self._reload_day_snapshot()
                         self._render_detail()
                         self.page.update()
                     except Exception:
@@ -1333,6 +1344,12 @@ class DinersScreen:
                         body=probe.message
                         or ERROR_TEXTS[ErrorCode.POSTCONDITION_FAILED],
                     )
+                    try:
+                        self._reload_day_snapshot()
+                        self._render_detail()
+                        self.page.update()
+                    except Exception:
+                        pass
 
             self.page.run_thread(_apply)
 
@@ -1346,9 +1363,9 @@ class DinersScreen:
         if outcome.refreshed is not None:
             self._day = outcome.refreshed
             try:
-                self._capture_order_version(self._day)
+                self._reload_day_snapshot()
             except Exception:
-                LOGGER.exception("post-mutation version capture failed")
+                LOGGER.exception("post-mutation snapshot reload failed")
             self._render_detail()
         if outcome.succeeded:
             self._schedule_settle_probe(outcome)
@@ -1361,10 +1378,17 @@ class DinersScreen:
             return
         if self._order_version is None:
             try:
-                self._capture_order_version(self._day)
+                self._reload_day_snapshot()
             except Exception as exc:
                 message_dialog(self.page, title="Objednávka", body=str(exc))
                 return
+        if self._order_version is None:
+            message_dialog(
+                self.page,
+                title="Objednávka",
+                body="Stav objednávky nelze bezpečně načíst.",
+            )
+            return
         try:
             expected_action, expected_ordered = self.vm.rendered_order_intent(
                 self._day, meal_type, menu
@@ -1399,10 +1423,17 @@ class DinersScreen:
             return
         if self._order_version is None:
             try:
-                self._capture_order_version(self._day)
+                self._reload_day_snapshot()
             except Exception as exc:
                 message_dialog(self.page, title="Odhlášení", body=str(exc))
                 return
+        if self._order_version is None:
+            message_dialog(
+                self.page,
+                title="Odhlášení",
+                body="Stav objednávky nelze bezpečně načíst.",
+            )
+            return
         try:
             expected_action, expected_ordered = self.vm.rendered_order_intent(
                 self._day, meal_type, menu
@@ -1421,8 +1452,7 @@ class DinersScreen:
                 body=ERROR_TEXTS[ErrorCode.ORDER_STALE_STATE],
             )
             try:
-                self._day = self.vm.set_day(self._day.target_date)
-                self._capture_order_version(self._day)
+                self._reload_day_snapshot()
                 self._render_detail()
             except Exception:
                 pass

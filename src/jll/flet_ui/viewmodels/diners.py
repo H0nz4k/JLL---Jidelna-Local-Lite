@@ -12,7 +12,13 @@ from ...orders.concurrency import OrderVersionToken
 from ...orders.errors import OrderBusinessError
 from ...orders.models import OrderAction
 from ...policy import Permission
-from ...read_models import BusinessCalendar, DinerDay, DinerSummary, HomeTodayOverview
+from ...read_models import (
+    BusinessCalendar,
+    DinerDay,
+    DinerDaySnapshot,
+    DinerSummary,
+    HomeTodayOverview,
+)
 from ...read_service import OrderReadService
 from ..state import AppState
 
@@ -150,14 +156,14 @@ class DinersViewModel:
         self.state.diner_results = results
         return results
 
-    def select_diner(self, evidcislo: int) -> DinerDay:
+    def select_diner(self, evidcislo: int) -> DinerDaySnapshot:
         self.state.selected_evidcislo = evidcislo
         # Při každém otevření strávníka (hledání / Enter / klik) vždy dnešek.
         target = self.today_for_open()
         self.state.selected_day = target
-        return self.read.load_diner_day(evidcislo, target)
+        return self.read.load_diner_day_snapshot(evidcislo, target)
 
-    def switch_month(self, *, future: bool) -> DinerDay | None:
+    def switch_month(self, *, future: bool) -> DinerDaySnapshot | None:
         if self.state.selected_evidcislo is None:
             return None
         cal = self._calendar()
@@ -172,11 +178,11 @@ class DinersViewModel:
             target = date(opt.year, opt.month, day)
         return self.set_day(target)
 
-    def set_day(self, target: date) -> DinerDay | None:
+    def set_day(self, target: date) -> DinerDaySnapshot | None:
         self.state.selected_day = target
         if self.state.selected_evidcislo is None:
             return None
-        return self.read.load_diner_day(self.state.selected_evidcislo, target)
+        return self.read.load_diner_day_snapshot(self.state.selected_evidcislo, target)
 
     def month_rows(self, diner_day: DinerDay) -> list[MonthRow]:
         days_in_month = calendar.monthrange(

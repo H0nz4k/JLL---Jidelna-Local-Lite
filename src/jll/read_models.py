@@ -3,9 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from .orders.errors import ErrorCode
 from .orders.models import OrderAction
+
+if TYPE_CHECKING:
+    from .orders.concurrency import OrderVersionToken
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +187,14 @@ class DinerDay:
     target_date: date
     server_now: datetime
     meals: tuple[MealDay, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DinerDaySnapshot:
+    """DinerDay + OrderVersionToken ze stejného DB read snapshotu."""
+
+    day: DinerDay
+    order_version: OrderVersionToken
 
 
 @dataclass(frozen=True, slots=True)
