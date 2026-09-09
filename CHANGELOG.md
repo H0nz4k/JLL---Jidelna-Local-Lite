@@ -6,6 +6,22 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.5.8] – 2026-09-09
+
+Safe multi-writer coexistence (orders):
+
+- `OrderVersionToken` / material fingerprint + optional `seq`/`updated_dt`
+- Pre-write stale reject (`ORDER_STALE_STATE`) + under-lock re-read
+- Post-commit / settle probe (`ORDER_EXTERNAL_CHANGE`) bez retry war
+- Live marker poll otevřené objednávkové karty (~2 s)
+- Docs: `docs/MULTI_WRITER_COEXISTENCE_0.5.8.md`,
+  `docs/PRODUCTION_WRITE_READINESS_0.5.8.md`
+- Historické 3 mixed-writer strict XFAIL zůstávají (PREVENTION nemožná)
+
+### Changed
+
+- Canonical verze `0.5.8`.
+
 ## [0.5.7] – 2026-09-09
 
 Čtečka – IKonverze / Pridat00:
