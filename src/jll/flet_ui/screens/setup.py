@@ -22,7 +22,11 @@ class SetupScreen:
         self.page = page
         self.state = state
         self.on_finished = on_finished
-        self.vm = SetupViewModel(state)
+        self.vm = SetupViewModel(
+            state,
+            environment_hint=state.environment_hint,
+            allow_environment_choice=state.allow_environment_choice,
+        )
         self.body = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=theme.SPACING["md"])
         self.root = ft.Container(
             content=ft.Column(
@@ -52,18 +56,31 @@ class SetupScreen:
         step = self.vm.draft.step
         title = self.vm.STEPS[step]
         self.body.controls.append(theme.text(title, theme.TextRole.ACTION))
-        if step == 0:
-            self._step_mode()
-        elif step == 1:
-            self._step_db()
-        elif step == 2:
-            self._step_station()
-        elif step == 3:
-            self._step_categories()
-        elif step == 4:
-            self._step_sup()
+        if self.vm.allow_environment_choice:
+            if step == 0:
+                self._step_mode()
+            elif step == 1:
+                self._step_db()
+            elif step == 2:
+                self._step_station()
+            elif step == 3:
+                self._step_categories()
+            elif step == 4:
+                self._step_sup()
+            else:
+                self._step_summary()
         else:
-            self._step_summary()
+            # Production frozen: bez volby LAB/PRODUCTION.
+            if step == 0:
+                self._step_db()
+            elif step == 1:
+                self._step_station()
+            elif step == 2:
+                self._step_categories()
+            elif step == 3:
+                self._step_sup()
+            else:
+                self._step_summary()
         nav = []
         if step > 0:
             nav.append(
@@ -134,6 +151,22 @@ class SetupScreen:
 
     def _step_db(self) -> None:
         d = self.vm.draft
+        if not self.vm.allow_environment_choice and self.vm.is_production:
+            self.body.controls.append(
+                theme.text(
+                    "Připojení k provozní databázi (System ID pinning).",
+                    theme.TextRole.BODY,
+                    color=theme.COLORS["text_secondary"],
+                )
+            )
+        elif not self.vm.allow_environment_choice:
+            self.body.controls.append(
+                theme.text(
+                    "LAB režim — lokální databáze jll_*.",
+                    theme.TextRole.BODY,
+                    color=theme.COLORS["text_secondary"],
+                )
+            )
         host = _field(label="Host", value=d.host)
         port = _field(label="Port", value=d.port)
         database = _field(label="Databáze", value=d.database)
@@ -315,17 +348,18 @@ class SetupScreen:
     def _next(self) -> None:
         if hasattr(self, "_persist"):
             self._persist()
+        step = self.vm.draft.step
+        db_step = 0 if not self.vm.allow_environment_choice else 1
+        sup_step = 3 if not self.vm.allow_environment_choice else 4
         try:
-            # step 1 = Databáze
-            if self.vm.draft.step == 1 and self.vm.draft.probe is None:
+            if step == db_step and self.vm.draft.probe is None:
                 self.vm.test_database()
-            # step 4 = SUP heslo
-            if self.vm.draft.step == 4:
+            if step == sup_step:
                 self.vm.validate_sup()
         except Exception as exc:
             message_dialog(self.page, title="Setup", body=str(exc))
             return
-        self.vm.draft.step = min(len(self.vm.STEPS) - 1, self.vm.draft.step + 1)
+        self.vm.draft.step = min(len(self.vm.STEPS) - 1, step + 1)
         self._render()
 
     def _finish(self) -> None:

@@ -105,6 +105,8 @@ class AppState:
     diagnostics: Any = None
     business_calendar: Any = None
     chip_listen_stop: threading.Event | None = None
+    environment_hint: str = "lab"
+    allow_environment_choice: bool = True
 
     def stop_chip_listen(self) -> None:
         if self.chip_listen_stop is not None:

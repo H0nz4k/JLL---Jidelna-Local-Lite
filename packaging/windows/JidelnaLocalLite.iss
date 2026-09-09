@@ -7,9 +7,9 @@
 #define MyAppName "JidelnaLocalLite"
 #define MyAppVersion "0.6.0"
 #define MyAppExeName "JidelnaLocalLite.exe"
-#define MyRepoRoot "..\.."
-#define MyOnedirSource "{#MyRepoRoot}\dist\JidelnaLocalLite"
-#define MyOutputDir "{#MyRepoRoot}\dist\release\0.6.0"
+; Paths relative to this .iss file (packaging/windows/).
+#define MyOnedirSource "..\..\dist\JidelnaLocalLite"
+#define MyOutputDir "..\..\dist\release\0.6.0"
 
 [Setup]
 AppId={{A6F2C8E1-4B7D-4F9A-9C31-8E5D2A7B6C10}

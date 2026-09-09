@@ -207,7 +207,7 @@ class FletAppController:
             payment_service=self.state.payment_service,
         )
         try:
-            self.state.diagnostics = self.state.read_service.verify_lab()
+            self.state.diagnostics = self.state.read_service.verify_runtime()
         except Exception:
             self.state.diagnostics = None
         try:
@@ -538,9 +538,22 @@ def run_app(
     config_path: Path,
     identity_path: Path,
     log_path: Path | None = None,
+    environment_hint: str = "lab",
+    allow_environment_choice: bool | None = None,
 ) -> None:
     configure_logging(log_path or (PROJECT_ROOT / "logs" / "jll-flet.log"))
-    state = AppState(config_path=config_path, identity_path=identity_path)
+    hint = environment_hint.strip().lower()
+    if hint not in {"lab", "production"}:
+        hint = "lab"
+    choice = allow_environment_choice
+    if choice is None:
+        choice = hint == "lab"
+    state = AppState(
+        config_path=config_path,
+        identity_path=identity_path,
+        environment_hint=hint,
+        allow_environment_choice=choice,
+    )
     if config_path.is_file():
         try:
             state.typography = load_typography(config_path)
@@ -594,6 +607,8 @@ def main(argv: list[str] | None = None) -> int:
         config_path=paths.config_path,
         identity_path=paths.identity_path,
         log_path=paths.log_path,
+        environment_hint=paths.environment_hint,
+        allow_environment_choice=paths.environment_hint == "lab",
     )
     return 0
 

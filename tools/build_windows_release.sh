@@ -76,7 +76,9 @@ find_iscc() {
     "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" \
     "/c/Program Files/Inno Setup 6/ISCC.exe" \
     "C:/Program Files (x86)/Inno Setup 6/ISCC.exe" \
-    "C:/Program Files/Inno Setup 6/ISCC.exe"
+    "C:/Program Files/Inno Setup 6/ISCC.exe" \
+    "$LOCALAPPDATA/Programs/Inno Setup 6/ISCC.exe" \
+    "/c/Users/$USER/AppData/Local/Programs/Inno Setup 6/ISCC.exe"
   do
     if [[ -x "$candidate" || -f "$candidate" ]]; then
       printf '%s\n' "$candidate"
