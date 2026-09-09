@@ -17,6 +17,10 @@ Index technické dokumentace. Kořenový přehled projektu je v
 - [JLL_CHIP_MODULE.md](JLL_CHIP_MODULE.md) – čipový modul a `ChipReader`.
 - [JLL_CHIP_IKONVERZE_PRIDAT00.md](JLL_CHIP_IKONVERZE_PRIDAT00.md) –
   IKonverze / Pridat00 a doplnění na 16 znaků.
+- [MULTI_WRITER_COEXISTENCE_0.5.8.md](MULTI_WRITER_COEXISTENCE_0.5.8.md) –
+  multi-writer model (prevention vs detection).
+- [PRODUCTION_WRITE_READINESS_0.5.8.md](PRODUCTION_WRITE_READINESS_0.5.8.md) –
+  production write matice.
 - [JLL_PICKUP_STATUS.md](JLL_PICKUP_STATUS.md) – stav výdeje.
 - [JLL_REPORTS.md](JLL_REPORTS.md) – sestavy.
 - [JLL_FLET_ARCHITECTURE.md](JLL_FLET_ARCHITECTURE.md) – cílové Flet UI.
