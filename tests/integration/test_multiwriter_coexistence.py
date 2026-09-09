@@ -226,14 +226,6 @@ def test_mw09_polling_lifecycle_helpers() -> None:
     assert not timer.isActive()
 
 
-_EXCLUSIVE_LUNCH = {
-    OBED_A: frozenset({OBED_B, OBED_C, OBED_D}),
-    OBED_B: frozenset({OBED_A, OBED_C, OBED_D}),
-    OBED_C: frozenset({OBED_A, OBED_B, OBED_D}),
-    OBED_D: frozenset({OBED_A, OBED_B, OBED_C}),
-}
-
-
 def test_mw05_relation_parity_ignores_non_applicable_d(
     lab_database: LabDatabase,
 ) -> None:
@@ -275,7 +267,11 @@ def test_mw05_relation_parity_ignores_non_applicable_d(
 def test_mw06_relation_overwrite_after_commit_is_consistency(
     lab_database: LabDatabase,
 ) -> None:
-    """MW-06: po JLL COMMIT external vytvoří A+B digit → CONSISTENCY, no repair."""
+    """MW-06: po JLL COMMIT external vytvoří A+B digit → CONSISTENCY, no repair.
+
+    Oracle musí jít přes settle_verify_result() (stejně jako Flet) — bez ručního
+    exclusive_peers.
+    """
 
     _open_deadlines(lab_database)
     set_state(lab_database, "N", typstravy=OBED_A)
@@ -285,27 +281,26 @@ def test_mw06_relation_overwrite_after_commit_is_consistency(
     object.__setattr__(command, "expected_version", snapshot)
     result = service(lab_database).execute(command)
     assert result.success
+    assert result.post_commit_expectations is not None
+    assert OBED_A in result.post_commit_expectations.exclusive_peers
     assert state(lab_database, OBED_A) == "1"
     # External stale writer: keep A=1 and also force B=1 (relation-invalid).
     set_state(lab_database, "1", typstravy=OBED_B)
     before_a = state(lab_database, OBED_A)
     before_b = state(lab_database, OBED_B)
-    probe = service(lab_database).settle_verify(
-        evidcislo=EVIDCISLO,
-        datum=TARGET,
-        intended=[IntendedDayState(OBED_A, TARGET.day, "1")],
-        committed_version=result.committed_version,
-        exclusive_peers=_EXCLUSIVE_LUNCH,
-    )
+    probe = service(lab_database).settle_verify_result(result)
     assert probe.status is ProbeStatus.CONSISTENCY
     assert state(lab_database, OBED_A) == before_a
     assert state(lab_database, OBED_B) == before_b
 
 
-def test_mw07_finance_order_overwrite_is_conflict_or_consistency(
+def test_mw07_finance_order_overwrite_is_consistency(
     lab_database: LabDatabase,
 ) -> None:
-    """MW-07: po order+finance COMMIT external přepíše order → CONFLICT/CONSISTENCY."""
+    """MW-07: raw order overwrite bez finance → automatický CONSISTENCY.
+
+    Test NESMÍ předat finance_consistent=False; verdikt musí přijít ze služby.
+    """
 
     _open_deadlines(lab_database)
     set_state(lab_database, "N")
@@ -314,15 +309,35 @@ def test_mw07_finance_order_overwrite_is_conflict_or_consistency(
     object.__setattr__(command, "expected_version", snapshot)
     result = service(lab_database).execute(command)
     assert result.success
+    assert result.post_commit_expectations is not None
     assert state(lab_database, OBED_A) == "1"
     # Raw overwrite without calling objednavka_minus → order vs finance drift.
     set_state(lab_database, "N")
-    probe = service(lab_database).settle_verify(
-        evidcislo=EVIDCISLO,
-        datum=TARGET,
-        intended=[IntendedDayState(OBED_A, TARGET.day, "1")],
-        committed_version=result.committed_version,
-        finance_consistent=False,
-    )
-    assert probe.status in {ProbeStatus.CONFLICT, ProbeStatus.CONSISTENCY}
+    probe = service(lab_database).settle_verify_result(result)
+    assert probe.status is ProbeStatus.CONSISTENCY
     assert state(lab_database, OBED_A) == "N"
+
+
+def test_mw07_consistent_order_and_finance_change_is_conflict(
+    lab_database: LabDatabase,
+) -> None:
+    """MW-07b: konzistentní external změna order+finance → CONFLICT, ne false CONSISTENCY."""
+
+    _open_deadlines(lab_database)
+    set_state(lab_database, "N")
+    snapshot = _version(lab_database)
+    command = order(action=OrderAction.MENU_ADD, menu=1)
+    object.__setattr__(command, "expected_version", snapshot)
+    svc = service(lab_database)
+    result = svc.execute(command)
+    assert result.success
+    assert state(lab_database, OBED_A) == "1"
+    # Konzistentní undo přes stejný OrderService (finance se mění spolu s order).
+    undo_snapshot = _version(lab_database)
+    undo = order(action=OrderAction.MENU_DELETE, menu=1)
+    object.__setattr__(undo, "expected_version", undo_snapshot)
+    undo_result = svc.execute(undo)
+    assert undo_result.success
+    assert state(lab_database, OBED_A) in {"N", "S"}
+    probe = svc.settle_verify_result(result)
+    assert probe.status is ProbeStatus.CONFLICT

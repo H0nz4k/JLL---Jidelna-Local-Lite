@@ -116,6 +116,61 @@ class PostCommitProbe:
     violated: tuple[IntendedDayState, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class OrderPostCommitExpectations:
+    """Očekávání zachycená při JLL COMMITu pro settle bez UI business rules."""
+
+    intended: tuple[IntendedDayState, ...]
+    exclusive_peers: Mapping[str, frozenset[str]]
+    financial_fingerprint: str
+    finance_meal_types: tuple[str, ...]
+    allowed_categories: frozenset[str]
+
+
+def financial_snapshot_fingerprint(
+    *,
+    order_price: Decimal | Any,
+    order_count: int,
+    prescribed: Decimal | Any,
+    penden_amount: Decimal | Any,
+    penden_count: int,
+    penden_by_type: Sequence[tuple[str, Decimal | Any, int]],
+) -> str:
+    """Stabilní fingerprint finančního stavu známého z OrderService."""
+
+    def _dec(value: Decimal | Any) -> str:
+        if isinstance(value, Decimal):
+            return format(value, "f")
+        return str(value)
+
+    payload = {
+        "order_price": _dec(order_price),
+        "order_count": int(order_count),
+        "prescribed": _dec(prescribed),
+        "penden_amount": _dec(penden_amount),
+        "penden_count": int(penden_count),
+        "penden_by_type": [
+            [str(typ), _dec(amount), int(count)]
+            for typ, amount, count in penden_by_type
+        ],
+    }
+    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def build_exclusive_peers(
+    target_kod: str,
+    vyloucene_codes: set[str] | frozenset[str],
+) -> dict[str, frozenset[str]]:
+    """Mapa vyloučených peerů z applicable vyloucenos cílového typu."""
+
+    codes = {code for code in vyloucene_codes if code}
+    if not codes:
+        return {}
+    group = frozenset({target_kod} | codes)
+    return {code: frozenset(group - {code}) for code in group}
+
+
 def _iso(value: datetime | None) -> str:
     return value.isoformat(sep=" ", timespec="milliseconds") if value else ""
 
@@ -228,6 +283,8 @@ def evaluate_post_commit(
     intended: Sequence[IntendedDayState],
     exclusive_peers: Mapping[str, frozenset[str]] | None = None,
     finance_consistent: bool | None = None,
+    committed_finance_fingerprint: str | None = None,
+    current_finance_fingerprint: str | None = None,
 ) -> PostCommitProbe:
     after_map = after.by_type()
     violated: list[IntendedDayState] = []
@@ -241,7 +298,34 @@ def evaluate_post_commit(
             violated.append(item)
 
     markers_changed = before.fingerprint() != after.fingerprint()
+    finance_known = (
+        committed_finance_fingerprint is not None
+        and current_finance_fingerprint is not None
+    )
+    finance_stuck = (
+        finance_known
+        and committed_finance_fingerprint == current_finance_fingerprint
+    )
+    finance_drifted = (
+        finance_known
+        and committed_finance_fingerprint != current_finance_fingerprint
+    )
+
     if violated:
+        # Automatický finance oracle: order přepsán, finance zůstaly u JLL commit.
+        if finance_stuck:
+            return PostCommitProbe(
+                status=ProbeStatus.CONSISTENCY,
+                message=(
+                    "Po uložení byla zjištěna nekonzistence objednávky "
+                    "(order/finance nekonzistence po cizím zápisu). "
+                    "Zobrazuji aktuální stav databáze. Automatická oprava se neprovádí."
+                ),
+                before_fingerprint=before.fingerprint(),
+                after_fingerprint=after.fingerprint(),
+                intended=tuple(intended),
+                violated=tuple(violated),
+            )
         return PostCommitProbe(
             status=ProbeStatus.CONFLICT,
             message=(
@@ -277,6 +361,8 @@ def evaluate_post_commit(
                 break
     if finance_consistent is False:
         consistency_reasons.append("order/finance nekonzistence po cizím zápisu")
+    elif finance_drifted:
+        consistency_reasons.append("finance drift při platném intended stavu")
 
     if consistency_reasons:
         return PostCommitProbe(

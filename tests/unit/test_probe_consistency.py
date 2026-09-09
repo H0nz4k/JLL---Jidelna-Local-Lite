@@ -53,13 +53,27 @@ def test_exclusive_group_violation_returns_consistency() -> None:
     assert probe.status is ProbeStatus.CONSISTENCY
 
 
-def test_finance_inconsistent_flag_returns_consistency() -> None:
+def test_finance_fingerprint_stuck_with_violated_intended_is_consistency() -> None:
     before = _token(("Oběd-A", "1"))
-    after = _token(("Oběd-A", "1"))
+    after = _token(("Oběd-A", "N"))
     probe = evaluate_post_commit(
         before=before,
         after=after,
         intended=[IntendedDayState("Oběd-A", 10, "1")],
-        finance_consistent=False,
+        committed_finance_fingerprint="abc",
+        current_finance_fingerprint="abc",
     )
     assert probe.status is ProbeStatus.CONSISTENCY
+
+
+def test_finance_fingerprint_changed_with_violated_intended_is_conflict() -> None:
+    before = _token(("Oběd-A", "1"))
+    after = _token(("Oběd-A", "N"))
+    probe = evaluate_post_commit(
+        before=before,
+        after=after,
+        intended=[IntendedDayState("Oběd-A", 10, "1")],
+        committed_finance_fingerprint="abc",
+        current_finance_fingerprint="xyz",
+    )
+    assert probe.status is ProbeStatus.CONFLICT

@@ -1870,31 +1870,17 @@ class MainWindow(QMainWindow):
         result = outcome.result
         if result is None or getattr(result, "committed_version", None) is None:
             return
+        if getattr(result, "post_commit_expectations", None) is None:
+            return
         self._pending_settle_id += 1
         settle_id = self._pending_settle_id
-        evidcislo = result.evidcislo
-        datum = result.datum
-        committed = result.committed_version
-        from ..orders.concurrency import IntendedDayState
-
-        intended = tuple(
-            IntendedDayState(
-                typstravy=item.typstravy,
-                day=datum.day,
-                expected_state=item.after_state,
-            )
-            for item in getattr(result, "committed_transitions", ())
-        )
 
         def _run() -> None:
             if settle_id != self._pending_settle_id:
                 return
             try:
-                probe = self.application_service.order_service.settle_verify(
-                    evidcislo=evidcislo,
-                    datum=datum,
-                    intended=intended,
-                    committed_version=committed,
+                probe = self.application_service.order_service.settle_verify_result(
+                    result
                 )
             except Exception:
                 return

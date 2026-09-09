@@ -7,8 +7,13 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .concurrency import OrderVersionToken, PostCommitProbe
+    from .concurrency import (
+        OrderPostCommitExpectations,
+        OrderVersionToken,
+        PostCommitProbe,
+    )
 else:  # runtime soft dependency for dataclasses defaults
+    OrderPostCommitExpectations = Any  # type: ignore[misc,assignment]
     OrderVersionToken = Any  # type: ignore[misc,assignment]
     PostCommitProbe = Any  # type: ignore[misc,assignment]
 
@@ -232,3 +237,4 @@ class OrderResult:
     metrics: OrderMetrics = field(default_factory=OrderMetrics)
     post_commit_probe: "PostCommitProbe | None" = None
     committed_version: "OrderVersionToken | None" = None
+    post_commit_expectations: "OrderPostCommitExpectations | None" = None

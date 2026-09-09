@@ -16,7 +16,7 @@ from ...chip_reader import (
     UnavailableChipReader,
     available_serial_ports,
 )
-from ...orders.concurrency import IntendedDayState, OrderVersionToken, ProbeStatus
+from ...orders.concurrency import OrderVersionToken, ProbeStatus
 from ...orders.errors import ErrorCode, OrderBusinessError
 from ...orders.models import OrderAction
 from ...policy import Permission
@@ -1280,21 +1280,12 @@ class DinersScreen:
         result = outcome.result
         if result is None or getattr(result, "committed_version", None) is None:
             return
+        if getattr(result, "post_commit_expectations", None) is None:
+            return
         day = self._day
         if day is None:
             return
-        committed = result.committed_version
-        datum = result.datum
-        intended = tuple(
-            IntendedDayState(
-                typstravy=item.typstravy,
-                day=datum.day,
-                expected_state=item.after_state,
-            )
-            for item in getattr(result, "committed_transitions", ())
-        )
         evid = day.diner.evidcislo
-        target = day.target_date
         generation = self._mutation_generation
 
         def _run() -> None:
@@ -1304,12 +1295,7 @@ class DinersScreen:
             if self._day.diner.evidcislo != evid:
                 return
             try:
-                probe = self.vm.orders.order_service.settle_verify(
-                    evidcislo=evid,
-                    datum=target,
-                    intended=intended,
-                    committed_version=committed,
-                )
+                probe = self.vm.orders.order_service.settle_verify_result(result)
             except Exception:
                 LOGGER.exception("settle verify failed")
                 return
