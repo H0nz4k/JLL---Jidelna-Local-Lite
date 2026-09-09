@@ -4,7 +4,13 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .concurrency import OrderVersionToken, PostCommitProbe
+else:  # runtime soft dependency for dataclasses defaults
+    OrderVersionToken = Any  # type: ignore[misc,assignment]
+    PostCommitProbe = Any  # type: ignore[misc,assignment]
 
 
 class OrderAction(StrEnum):
@@ -29,6 +35,7 @@ class OrderCommand:
     allowed_categories: frozenset[str]
     actor: str
     client_version: str
+    expected_version: "OrderVersionToken | None" = None
 
     def __post_init__(self) -> None:
         try:
@@ -223,3 +230,5 @@ class OrderResult:
     committed_transitions: tuple[Transition, ...]
     committed_at: datetime
     metrics: OrderMetrics = field(default_factory=OrderMetrics)
+    post_commit_probe: "PostCommitProbe | None" = None
+    committed_version: "OrderVersionToken | None" = None

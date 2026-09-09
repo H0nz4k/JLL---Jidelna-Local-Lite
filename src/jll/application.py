@@ -47,6 +47,14 @@ ERROR_TEXTS: dict[ErrorCode, str] = {
     ErrorCode.CONCURRENT_MODIFICATION: (
         "Objednávku právě mění někdo jiný. Zkuste to znovu."
     ),
+    ErrorCode.ORDER_STALE_STATE: (
+        "Objednávky se mezitím změnily v jiné aplikaci. "
+        "Stav byl obnoven. Zkontrolujte prosím změnu znovu."
+    ),
+    ErrorCode.ORDER_EXTERNAL_CHANGE: (
+        "Objednávka byla během ukládání změněna v jiné aplikaci. "
+        "Zobrazuji aktuální stav databáze. Zkontrolujte prosím poslední změnu."
+    ),
     ErrorCode.LAB_GUARD_FAILED: (
         "LAB databázi nelze bezpečně ověřit. Zápisy jsou blokovány."
     ),
@@ -68,6 +76,7 @@ class MutationOutcome:
     refresh_error: SafeError | None
     action: OrderAction | None
     duration_ms: float
+    notice: str | None = None
 
     @property
     def succeeded(self) -> bool:
@@ -183,6 +192,12 @@ class OrderApplicationService:
                 menu,
                 bypass_order_deadlines=policy.bypass_order_deadlines,
             )
+            expected_version = self.order_service.read_version(
+                evidcislo,
+                target.year,
+                target.month,
+                meal_types=[item.meal_type for item in current.meals],
+            )
             command = OrderCommand(
                 action=action,
                 evidcislo=evidcislo,
@@ -192,6 +207,7 @@ class OrderApplicationService:
                 allowed_categories=policy.scope(),
                 actor=actor.audit_actor,
                 client_version=actor.client_version,
+                expected_version=expected_version,
             )
             result = self.order_service.execute(command)
         except Exception as exc:
@@ -199,10 +215,20 @@ class OrderApplicationService:
 
         refreshed: DinerDay | None = None
         refresh_error: SafeError | None = None
+        notice: str | None = None
         try:
             refreshed = self.read_service.load_diner_day(evidcislo, target)
         except Exception as exc:
             refresh_error = present_error(exc)
+
+        if result is not None and getattr(result, "post_commit_probe", None) is not None:
+            probe = result.post_commit_probe
+            if probe.status.value == "CONFLICT":
+                notice = probe.message or ERROR_TEXTS[ErrorCode.ORDER_EXTERNAL_CHANGE]
+            elif probe.status.value == "EXTERNAL_OK" and probe.message:
+                notice = probe.message
+            elif probe.status.value == "CONSISTENCY":
+                notice = probe.message or ERROR_TEXTS[ErrorCode.POSTCONDITION_FAILED]
 
         duration_ms = (time.perf_counter() - started) * 1000
         LOGGER.info(
@@ -220,4 +246,5 @@ class OrderApplicationService:
             refresh_error,
             action,
             duration_ms,
+            notice,
         )

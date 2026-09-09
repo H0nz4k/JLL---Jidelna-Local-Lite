@@ -13,6 +13,12 @@ from psycopg import Connection
 
 from ..lab_guard import assert_lab_identity
 from .audit import audit_price, transition_note, validate_audit_command
+from .concurrency import (
+    IntendedDayState,
+    ProbeStatus,
+    evaluate_post_commit,
+    versions_match,
+)
 from .errors import ErrorCode, OrderBusinessError
 from .models import (
     Diner,
@@ -106,6 +112,47 @@ class OrderService:
             context={"sqlstate": getattr(last_retryable, "sqlstate", None)},
         ) from last_retryable
 
+    def read_version(
+        self,
+        evidcislo: int,
+        year: int,
+        month: int,
+        meal_types: Iterable[str] | None = None,
+    ):
+        """Read-only version token pro UI snapshot / polling / settle."""
+
+        with self._connection_factory() as connection:
+            if not connection.autocommit:
+                connection.autocommit = True
+            repository = OrderRepository(connection)
+            self._assert_lab_guard(repository)
+            return repository.fetch_order_version(
+                evidcislo=evidcislo,
+                year=year,
+                month=month,
+                meal_types=meal_types,
+                for_update=False,
+            )
+
+    def settle_verify(
+        self,
+        *,
+        evidcislo: int,
+        datum: date,
+        intended: Iterable[IntendedDayState],
+        committed_version,
+    ):
+        """Druhé ověření po COMMITu (settle window) — bez zápisu."""
+
+        intended_tuple = tuple(intended)
+        types = [item.typstravy for item in intended_tuple]
+        after = self.read_version(evidcislo, datum.year, datum.month, types)
+        return evaluate_post_commit(
+            before=committed_version,
+            after=after,
+            intended=intended_tuple,
+        )
+
     def _execute_once(self, command: OrderCommand) -> OrderResult:
         with self._connection_factory() as connection:
             if not connection.autocommit:
@@ -113,9 +160,26 @@ class OrderService:
             repository = OrderRepository(connection)
             self._assert_lab_guard(repository)
 
+            # Fail-fast stale check před locky (UI snapshot vs aktuální DB).
+            if command.expected_version is not None:
+                unlocked = repository.fetch_order_version(
+                    evidcislo=command.evidcislo,
+                    year=command.datum.year,
+                    month=command.datum.month,
+                    meal_types=[row.typsluzby for row in command.expected_version.rows],
+                    for_update=False,
+                )
+                if not versions_match(command.expected_version, unlocked):
+                    raise OrderBusinessError(
+                        ErrorCode.ORDER_STALE_STATE,
+                        "Objednávky se mezitím změnily v jiné aplikaci. "
+                        "Stav byl obnoven. Zkontrolujte prosím změnu znovu.",
+                    )
+
             transaction_started = time.perf_counter()
             advisory_wait_ms = 0.0
             config_wait_ms = 0.0
+            plan: OrderPlan | None = None
             with connection.transaction():
                 repository.configure_transaction(
                     lock_timeout_ms=self.settings.lock_timeout_ms,
@@ -161,6 +225,22 @@ class OrderService:
                         "Pro operaci chybí jednoznačný měsíční řádek.",
                         context={"types": missing},
                     )
+
+                # Po FOR UPDATE znovu ověř snapshot proti zamčenému stavu.
+                if command.expected_version is not None:
+                    locked_version = repository.fetch_order_version(
+                        evidcislo=command.evidcislo,
+                        year=command.datum.year,
+                        month=command.datum.month,
+                        meal_types=list(types_by_name),
+                        for_update=True,
+                    )
+                    if not versions_match(command.expected_version, locked_version):
+                        raise OrderBusinessError(
+                            ErrorCode.ORDER_STALE_STATE,
+                            "Objednávky se mezitím změnily v jiné aplikaci. "
+                            "Stav byl obnoven. Zkontrolujte prosím změnu znovu.",
+                        )
 
                 self._assert_temporal(repository, command, target_type)
                 repository.assert_ordering_open()
@@ -237,14 +317,52 @@ class OrderService:
                     vyloucene_codes,
                 )
                 committed_at = repository.get_server_now()
+                committed_version = repository.fetch_order_version(
+                    evidcislo=command.evidcislo,
+                    year=command.datum.year,
+                    month=command.datum.month,
+                    meal_types=affected_types,
+                    for_update=False,
+                )
 
             transaction_ms = (time.perf_counter() - transaction_started) * 1000
+            assert plan is not None
+            intended = tuple(
+                IntendedDayState(
+                    typstravy=item.typstravy,
+                    day=command.datum.day,
+                    expected_state=item.after_state,
+                )
+                for item in plan.transitions
+            )
+            # Nezávislý post-commit probe (nové autocommit čtení).
+            after_commit = repository.fetch_order_version(
+                evidcislo=command.evidcislo,
+                year=command.datum.year,
+                month=command.datum.month,
+                meal_types=[item.typstravy for item in intended],
+                for_update=False,
+            )
+            probe = evaluate_post_commit(
+                before=committed_version,
+                after=after_commit,
+                intended=intended,
+            )
+            if probe.status is ProbeStatus.CONFLICT:
+                LOGGER.warning(
+                    "ORDER_EXTERNAL_CHANGE evidcislo=%s datum=%s violated=%s",
+                    command.evidcislo,
+                    command.datum.isoformat(),
+                    [item.typstravy for item in probe.violated],
+                )
             LOGGER.info(
-                "LAB order committed action=%s evidcislo=%s transitions=%s tx_ms=%.3f",
+                "LAB order committed action=%s evidcislo=%s transitions=%s "
+                "tx_ms=%.3f probe=%s",
                 command.action.value,
                 command.evidcislo,
                 len(plan.transitions),
                 transaction_ms,
+                probe.status.value,
             )
             return OrderResult(
                 success=True,
@@ -258,6 +376,8 @@ class OrderService:
                     config_lock_wait_ms=config_wait_ms,
                     transaction_ms=transaction_ms,
                 ),
+                post_commit_probe=probe,
+                committed_version=after_commit,
             )
 
     def _assert_lab_guard(self, repository: OrderRepository) -> None:

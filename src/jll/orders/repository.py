@@ -8,11 +8,18 @@ from typing import Any
 from psycopg import Connection, sql
 from psycopg.rows import dict_row
 
+from .concurrency import (
+    DAY_COLUMNS as VERSION_DAY_COLUMNS,
+    OrderVersionToken,
+    PrihlasCapabilities,
+    build_version_token,
+)
 from .errors import ErrorCode, OrderBusinessError
 from .models import Diner, MealType, OrderCommand, OrderRow, Transition
 from .preflight import decimal_from_db
 
 DAY_COLUMNS = tuple(f"d{day:02d}" for day in range(1, 32))
+assert DAY_COLUMNS == VERSION_DAY_COLUMNS
 
 CONFIG_LOCK_SQL = """
 LOCK TABLE
@@ -35,6 +42,106 @@ IN SHARE MODE
 class OrderRepository:
     def __init__(self, connection: Connection[Any]) -> None:
         self.connection = connection
+        self._prihlas_capabilities: PrihlasCapabilities | None = None
+
+    def prihlas_capabilities(self) -> PrihlasCapabilities:
+        if self._prihlas_capabilities is not None:
+            return self._prihlas_capabilities
+        rows = self._fetchall(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'prihlas'
+              AND column_name = ANY(%s::text[])
+            """,
+            (["seq", "updated_dt", "id"],),
+        )
+        names = {str(row["column_name"]) for row in rows}
+        self._prihlas_capabilities = PrihlasCapabilities(
+            has_seq="seq" in names,
+            has_updated_dt="updated_dt" in names,
+            has_id="id" in names,
+        )
+        return self._prihlas_capabilities
+
+    def fetch_order_version(
+        self,
+        *,
+        evidcislo: int,
+        year: int,
+        month: int,
+        meal_types: Iterable[str] | None = None,
+        for_update: bool = False,
+    ) -> OrderVersionToken:
+        capabilities = self.prihlas_capabilities()
+        day_identifiers = sql.SQL(", ").join(
+            sql.Identifier(column) for column in DAY_COLUMNS
+        )
+        extras: list[sql.Composed | sql.SQL] = []
+        if capabilities.has_seq:
+            extras.append(sql.SQL("seq"))
+        if capabilities.has_updated_dt:
+            extras.append(sql.SQL("updated_dt"))
+        if capabilities.has_id:
+            extras.append(sql.SQL("id"))
+        extra_sql = (
+            sql.SQL(", ") + sql.SQL(", ").join(extras) if extras else sql.SQL("")
+        )
+        types = sorted({item.strip() for item in (meal_types or []) if item.strip()})
+        type_filter = (
+            sql.SQL("AND typsluzby = ANY(%s::varchar[])")
+            if types
+            else sql.SQL("")
+        )
+        params: list[Any] = [evidcislo, year, month]
+        if types:
+            params.append(types)
+        query = sql.SQL(
+            """
+            SELECT
+                btrim(typsluzby) AS typsluzby,
+                rok,
+                mesic,
+                poradiprihl,
+                NULLIF(btrim(kategorie), '') AS kategorie,
+                cena,
+                pocet,
+                {days}
+                {extras}
+            FROM public.prihlas
+            WHERE stravnik = %s
+              AND rok = %s
+              AND mesic = %s
+              {type_filter}
+            ORDER BY typsluzby, poradiprihl
+            {lock_clause}
+            """
+        ).format(
+            days=day_identifiers,
+            extras=extra_sql,
+            type_filter=type_filter,
+            lock_clause=sql.SQL("FOR UPDATE") if for_update else sql.SQL(""),
+        )
+        rows = self._fetchall(query, tuple(params))
+        grouped: dict[str, list[Mapping[str, Any]]] = {}
+        for row in rows:
+            grouped.setdefault(str(row["typsluzby"]).strip(), []).append(row)
+        ambiguous = [name for name, items in grouped.items() if len(items) != 1]
+        if ambiguous:
+            raise OrderBusinessError(
+                ErrorCode.AMBIGUOUS_ORDER_ROW,
+                "Měsíční přihláška není jednoznačná.",
+                context={"types": sorted(ambiguous)},
+            )
+        unique_rows = [items[0] for items in grouped.values()]
+        return build_version_token(
+            evidcislo=evidcislo,
+            year=year,
+            month=month,
+            capabilities=capabilities,
+            rows=unique_rows,
+        )
 
     def _fetchone(
         self,
