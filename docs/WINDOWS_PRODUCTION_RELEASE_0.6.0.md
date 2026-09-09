@@ -1,12 +1,11 @@
 # Windows production release — JidelnaLocalLite 0.6.0 (architecture note)
 
-Stav: **scaffolding / unsigned candidate policy**. Tento dokument nepředstírá
-podepsaný release. Packaging artefakty jsou kandidát; SmartScreen/AV riziko
-zůstává.
+Stav: **Flet production desktop candidate / UNSIGNED**. PySide6 GUI zůstává
+v `src/jll/gui` jako referenční/legacy; **není** release target.
 
 Produkt: `JidelnaLocalLite`  
-Balení: PyInstaller **onedir** + Inno Setup installer  
-Entrypoint: `python -m jll` → `jll.gui.app:main` (PySide6)
+Balení: PyInstaller **onedir** + Inno Setup installer (když je ISCC)  
+Entrypoint: `python -m jll` → `jll.flet_ui.app:main` (Flet)
 
 ## Layout
 

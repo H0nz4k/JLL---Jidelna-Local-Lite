@@ -8,14 +8,14 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [0.6.0] – 2026-09-09
 
-První Windows production candidate (PySide6):
+První Windows production candidate (**Flet** desktop):
 
-- Explicitní `lab` / `production` environment guards (System ID pin,
-  production bez loopback/`jll_` požadavku).
-- Runtime paths: ProgramData layout pro frozen build
-  (`jll.runtime_paths`).
-- Packaging: PyInstaller onedir + Inno Setup scaffold
-  (`tools/build_windows_release.sh`).
+- Production entrypoint: `python -m jll` → `jll.flet_ui.app` (PySide6 = reference/legacy).
+- Explicitní UI intent + rendered version token (ADD se nesmí invertovat na DELETE).
+- Multi-writer lifecycle ve Flet (marker poll ~2 s, settle ~400 ms).
+- Environment-aware production write policy (LAB PROVEN ≠ production enabled).
+- Runtime paths: ProgramData layout pro frozen build (`jll.runtime_paths`).
+- Packaging: PyInstaller onedir scaffold cílí na Flet.
 - Docs: `docs/WINDOWS_PRODUCTION_RELEASE_0.6.0.md`.
 - Staví na 0.5.8 multi-writer coexistence.
 
