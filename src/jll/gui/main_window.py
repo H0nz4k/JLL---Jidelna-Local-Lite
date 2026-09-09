@@ -182,6 +182,9 @@ class MainWindow(QMainWindow):
         self._sizing_result_columns = False
         self._left_panel_width: int | None = None
         self._detail_split_by_user = False
+        self._order_marker_fingerprint: str | None = None
+        self._order_poll_paused = False
+        self._pending_settle_id = 0
 
         self.setWindowTitle("JidelnaLocalLite – LAB")
         self.resize(1366, 728)
@@ -199,6 +202,9 @@ class MainWindow(QMainWindow):
         self.results.itemActivated.connect(lambda _item: self._result_selected())
         self.date_edit.dateChanged.connect(self._date_changed)
         self.month_table.cellClicked.connect(self._month_cell_clicked)
+        self.order_marker_timer = QTimer(self)
+        self.order_marker_timer.setInterval(2_000)
+        self.order_marker_timer.timeout.connect(self._poll_order_markers)
         self._refresh_policy()
         self._set_blocked(True, "Ověřuji lokální LAB databázi…")
         QTimer.singleShot(0, self._start_lab_verification)
@@ -1383,6 +1389,7 @@ class MainWindow(QMainWindow):
 
     def _render_day(self, day: DinerDay) -> None:
         self._current_day = day
+        self._arm_order_marker_poll(day)
         diner = day.diner
         self.diner_label.setText(diner.name)
         self.diner_meta_label.setText(
@@ -1708,6 +1715,7 @@ class MainWindow(QMainWindow):
         self._mutation_generation += 1
         request_id = self._mutation_generation
         self._mutation_context = (day.diner.evidcislo, day.target_date)
+        self._order_poll_paused = True
         self._active_write_button = button
         self._active_write_button_text = button.text()
         self._active_write_button_variant = button.property("variant")
@@ -1739,6 +1747,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         if request_id != self._mutation_generation:
             return
+        self._order_poll_paused = False
         self._restore_write_button()
         self._set_duration("write", duration_ms)
         if not isinstance(result, MutationOutcome):
@@ -1765,9 +1774,21 @@ class MainWindow(QMainWindow):
             ).open()
             self.statusBar().showMessage(result.error.user_message)
         elif result.succeeded:
-            self.statusBar().showMessage(
-                "Operace potvrzena databází a zobrazení obnoveno."
-            )
+            if result.notice:
+                self.statusBar().showMessage(result.notice)
+                if "změněna v jiné aplikaci" in result.notice:
+                    SafeErrorDialog(
+                        "Konflikt souběžné změny",
+                        result.notice,
+                        "ORDER_EXTERNAL_CHANGE",
+                        "settle",
+                        self,
+                    ).open()
+            else:
+                self.statusBar().showMessage(
+                    "Operace potvrzena databází a zobrazení obnoveno."
+                )
+            self._schedule_settle_probe(result)
         if result.refresh_error is not None:
             self._record_error(result.refresh_error.code)
             self.statusBar().showMessage(
@@ -1782,6 +1803,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         if request_id != self._mutation_generation:
             return
+        self._order_poll_paused = False
         self._restore_write_button()
         self._set_duration("write", duration_ms)
         self._show_error(
@@ -1789,6 +1811,88 @@ class MainWindow(QMainWindow):
         )
         if self._current_diner is not None:
             self._load_current_day()
+
+    def _arm_order_marker_poll(self, day: DinerDay) -> None:
+        del day  # signature kept for call-site clarity
+        self._order_marker_fingerprint = None
+        if not self.order_marker_timer.isActive():
+            self.order_marker_timer.start()
+
+    def _poll_order_markers(self) -> None:
+        if self._order_poll_paused or self._current_day is None:
+            if self._current_day is None and self.order_marker_timer.isActive():
+                self.order_marker_timer.stop()
+            return
+        day = self._current_day
+        try:
+            version = self.application_service.order_service.read_version(
+                day.diner.evidcislo,
+                day.target_date.year,
+                day.target_date.month,
+                meal_types=[meal.meal_type for meal in day.meals],
+            )
+        except Exception:
+            return
+        fingerprint = version.fingerprint()
+        if self._order_marker_fingerprint is None:
+            self._order_marker_fingerprint = fingerprint
+            return
+        if fingerprint != self._order_marker_fingerprint:
+            self._order_marker_fingerprint = fingerprint
+            self.statusBar().showMessage("Stav aktualizován z databáze.")
+            self._load_current_day()
+
+    def _schedule_settle_probe(self, outcome: MutationOutcome) -> None:
+        result = outcome.result
+        if result is None or getattr(result, "committed_version", None) is None:
+            return
+        self._pending_settle_id += 1
+        settle_id = self._pending_settle_id
+        evidcislo = result.evidcislo
+        datum = result.datum
+        committed = result.committed_version
+        from ..orders.concurrency import IntendedDayState
+
+        intended = tuple(
+            IntendedDayState(
+                typstravy=item.typstravy,
+                day=datum.day,
+                expected_state=item.after_state,
+            )
+            for item in getattr(result, "committed_transitions", ())
+        )
+
+        def _run() -> None:
+            if settle_id != self._pending_settle_id:
+                return
+            try:
+                probe = self.application_service.order_service.settle_verify(
+                    evidcislo=evidcislo,
+                    datum=datum,
+                    intended=intended,
+                    committed_version=committed,
+                )
+            except Exception:
+                return
+            if settle_id != self._pending_settle_id:
+                return
+            if probe.status.value == "CONFLICT":
+                self.statusBar().showMessage(probe.message)
+                SafeErrorDialog(
+                    "Konflikt souběžné změny",
+                    probe.message,
+                    "ORDER_EXTERNAL_CHANGE",
+                    "settle",
+                    self,
+                ).open()
+                if self._current_diner is not None:
+                    self._load_current_day()
+            elif probe.status.value == "EXTERNAL_OK" and probe.message:
+                self.statusBar().showMessage(probe.message)
+                if self._current_diner is not None:
+                    self._load_current_day()
+
+        QTimer.singleShot(400, _run)
 
     def _restore_write_button(self) -> None:
         if self._active_write_button is not None:
