@@ -187,6 +187,26 @@ class FakeOrderService:
         self.commands: list[Any] = []
         self.failure = failure
 
+    def read_version(
+        self,
+        evidcislo: int,
+        year: int,
+        month: int,
+        meal_types: Any = None,
+    ) -> Any:
+        from jll.orders.concurrency import OrderVersionToken, PrihlasCapabilities
+
+        del meal_types
+        return OrderVersionToken(
+            evidcislo=evidcislo,
+            year=year,
+            month=month,
+            capabilities=PrihlasCapabilities(
+                has_seq=False, has_updated_dt=False, has_id=False
+            ),
+            rows=(),
+        )
+
     def execute(self, command: Any) -> Any:
         self.commands.append(command)
         if self.failure is not None:
