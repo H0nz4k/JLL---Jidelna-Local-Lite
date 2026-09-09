@@ -18,7 +18,7 @@ from .payment_models import (
     PaymentPostResult,
 )
 from .policy import Permission, SessionPolicy
-from .write_gates import PAYMENT_WRITE_GATES, require_proven
+from .write_gates import PAYMENT_WRITE_GATES, require_environment_write
 
 ConnectionFactory = Callable[[], Any]
 
@@ -108,13 +108,23 @@ class PaymentService:
         )
 
     def post_manual(self, command: ManualPaymentCommand) -> PaymentPostResult:
-        require_proven(PAYMENT_WRITE_GATES, "manual_payment")
+        require_environment_write(
+            PAYMENT_WRITE_GATES,
+            "manual_payment",
+            environment=self._settings.environment,
+            domain="payment",
+        )
         policy = self._policy_provider()
         policy.require(Permission.PAYMENTS_POST)
         amount = self._positive_money(command.amount)
         method = (command.payment_method_code or "").strip()
         if not method or method == CASH_PAYMENT_METHOD:
-            require_proven(PAYMENT_WRITE_GATES, "cash_payment")
+            require_environment_write(
+            PAYMENT_WRITE_GATES,
+            "cash_payment",
+            environment=self._settings.environment,
+            domain="payment",
+        )
         account = (command.account or "").strip() or DEFAULT_ACCOUNT
         service = (command.service_type or "").strip()
         if not service:
@@ -224,7 +234,12 @@ class PaymentService:
     ) -> PaymentPostResult:
         """Záloha za čip uvnitř existující transakce (typ C, mesic=0)."""
 
-        require_proven(PAYMENT_WRITE_GATES, "chip_deposit")
+        require_environment_write(
+            PAYMENT_WRITE_GATES,
+            "chip_deposit",
+            environment=self._settings.environment,
+            domain="payment",
+        )
         money = self._positive_money(amount)
         method = self._resolve_chip_payment_method(cursor, payment_method)
         note = self._param_text(
@@ -280,7 +295,12 @@ class PaymentService:
     ) -> PaymentPostResult:
         """Vratka zálohy za čip uvnitř existující transakce (typ C, záporná částka)."""
 
-        require_proven(PAYMENT_WRITE_GATES, "chip_deposit_refund")
+        require_environment_write(
+            PAYMENT_WRITE_GATES,
+            "chip_deposit_refund",
+            environment=self._settings.environment,
+            domain="payment",
+        )
         money = self._positive_money(amount)
         method = self._resolve_chip_payment_method(cursor, payment_method)
         note = self._param_text(
@@ -462,7 +482,12 @@ class PaymentService:
         if explicit:
             code = explicit.strip()
             if code == CASH_PAYMENT_METHOD:
-                require_proven(PAYMENT_WRITE_GATES, "cash_payment")
+                require_environment_write(
+            PAYMENT_WRITE_GATES,
+            "cash_payment",
+            environment=self._settings.environment,
+            domain="payment",
+        )
             self._assert_payment_method(cursor, code)
             return code
         cursor.execute(

@@ -14,7 +14,7 @@ from .orders.errors import ErrorCode, OrderBusinessError
 from .orders.models import OrderServiceSettings
 from .policy import Permission, SessionPolicy
 from .read_models import chip_status_label
-from .write_gates import CHIP_WRITE_GATES, require_proven
+from .write_gates import CHIP_WRITE_GATES, require_environment_write
 
 ConnectionFactory = Callable[[], Any]
 
@@ -89,31 +89,56 @@ class ChipCommandService:
         )
 
     def assign(self, command: ChipCommand) -> None:
-        require_proven(CHIP_WRITE_GATES, "assign")
+        require_environment_write(
+            CHIP_WRITE_GATES,
+            "assign",
+            environment=self._settings.environment,
+            domain="chip",
+        )
         policy = self._policy_provider()
         policy.require(Permission.CHIPS_ASSIGN)
         self._run_write(command, self._assign_tx, deposit_gate="assign")
 
     def return_chip(self, command: ChipCommand) -> None:
-        require_proven(CHIP_WRITE_GATES, "return")
+        require_environment_write(
+            CHIP_WRITE_GATES,
+            "return",
+            environment=self._settings.environment,
+            domain="chip",
+        )
         policy = self._policy_provider()
         policy.require(Permission.CHIPS_RETURN)
         self._run_write(command, self._return_tx, deposit_gate="return")
 
     def block(self, command: ChipCommand) -> None:
-        require_proven(CHIP_WRITE_GATES, "block")
+        require_environment_write(
+            CHIP_WRITE_GATES,
+            "block",
+            environment=self._settings.environment,
+            domain="chip",
+        )
         policy = self._policy_provider()
         policy.require(Permission.CHIPS_BLOCK)
         self._run_write(command, self._block_tx)
 
     def lost(self, command: ChipCommand) -> None:
-        require_proven(CHIP_WRITE_GATES, "lost")
+        require_environment_write(
+            CHIP_WRITE_GATES,
+            "lost",
+            environment=self._settings.environment,
+            domain="chip",
+        )
         policy = self._policy_provider()
         policy.require(Permission.CHIPS_LOST)
         self._run_write(command, self._lost_tx)
 
     def unblock(self, command: ChipCommand) -> None:
-        require_proven(CHIP_WRITE_GATES, "unblock")
+        require_environment_write(
+            CHIP_WRITE_GATES,
+            "unblock",
+            environment=self._settings.environment,
+            domain="chip",
+        )
         policy = self._policy_provider()
         # Unblock je v legacy součást blokace / NajdiCip(B); JLL vyžaduje CHIPS_BLOCK.
         policy.require(Permission.CHIPS_BLOCK)

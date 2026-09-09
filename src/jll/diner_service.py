@@ -19,7 +19,7 @@ from .lab_guard import assert_lab_identity
 from .orders.errors import ErrorCode, OrderBusinessError
 from .orders.models import OrderServiceSettings
 from .policy import Permission, SessionPolicy
-from .write_gates import DINER_WRITE_GATES, require_proven
+from .write_gates import DINER_WRITE_GATES, require_environment_write
 
 ConnectionFactory = Callable[[], Any]
 _CREATE_ALLOCATOR_RETRIES = 5
@@ -37,7 +37,12 @@ class DinerService:
         self._settings = settings
 
     def create(self, command: CreateDinerCommand) -> DinerWriteResult:
-        require_proven(DINER_WRITE_GATES, "create")
+        require_environment_write(
+            DINER_WRITE_GATES,
+            "create",
+            environment=self._settings.environment,
+            domain="diner",
+        )
         policy = self._policy_provider()
         policy.require(Permission.DINERS_CREATE)
         jmeno = " ".join((command.jmeno or "").split()).upper()
@@ -121,7 +126,12 @@ class DinerService:
                 return DinerWriteResult(evidcislo, jmeno, kategorie)
 
     def edit_personal(self, command: EditDinerPersonalCommand) -> DinerWriteResult:
-        require_proven(DINER_WRITE_GATES, "edit_personal")
+        require_environment_write(
+            DINER_WRITE_GATES,
+            "edit_personal",
+            environment=self._settings.environment,
+            domain="diner",
+        )
         policy = self._policy_provider()
         policy.require(Permission.DINERS_EDIT)
         if not command.actor or not command.client_version:

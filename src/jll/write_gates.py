@@ -161,3 +161,57 @@ def require_proven(gates: dict[str, WriteGate], operation: str) -> None:
         raise ValueError("Neznámá write operace.")
     if not gate.enabled:
         raise WriteContractNotProven(gate.tooltip)
+
+
+PRODUCTION_DISABLED_MESSAGE = (
+    "Funkce v této production verzi není bezpečně povolena."
+)
+
+# Konzervativní production policy: LAB PROVEN ≠ production enabled.
+_PRODUCTION_ENABLED_KEYS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("orders", "change"),  # multi-writer detection PROVEN; residual overwrite risk
+    }
+)
+
+
+def effective_write_gate(
+    gates: dict[str, WriteGate],
+    operation: str,
+    *,
+    environment: str,
+    domain: str,
+) -> WriteGate:
+    """Environment-aware gate: production demotes unverified LAB PROVEN writes."""
+
+    gate = gates.get(operation)
+    if gate is None:
+        raise ValueError("Neznámá write operace.")
+    env = environment.strip().lower()
+    if env != "production":
+        return gate
+    if (domain, operation) in _PRODUCTION_ENABLED_KEYS:
+        return gate
+    if gate.status is ContractStatus.BLOCKED:
+        return gate
+    return WriteGate(
+        ContractStatus.BLOCKED,
+        f"Production policy: {gate.reason}",
+        gate.action_label,
+    )
+
+
+def require_environment_write(
+    gates: dict[str, WriteGate],
+    operation: str,
+    *,
+    environment: str,
+    domain: str,
+) -> None:
+    gate = effective_write_gate(
+        gates, operation, environment=environment, domain=domain
+    )
+    if not gate.enabled:
+        if environment.strip().lower() == "production":
+            raise WriteContractNotProven(PRODUCTION_DISABLED_MESSAGE)
+        raise WriteContractNotProven(gate.tooltip)

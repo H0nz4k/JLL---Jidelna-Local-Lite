@@ -10,7 +10,7 @@ from .orders.errors import ErrorCode, OrderBusinessError
 from .orders.models import OrderServiceSettings
 from .policy import Permission, SessionPolicy
 from .serving_repository import ChipIdentityRow, MealReadyRow, ServingRepository
-from .write_gates import SERVING_WRITE_GATES, require_proven
+from .write_gates import SERVING_WRITE_GATES, require_environment_write
 
 ConnectionFactory = Callable[[], Any]
 
@@ -112,7 +112,12 @@ class ServingService:
     ) -> bool:
         """Zápis výdeje přes public.zapis_odber s LAB/scope gate."""
 
-        require_proven(SERVING_WRITE_GATES, "record_pickup")
+        require_environment_write(
+            SERVING_WRITE_GATES,
+            "record_pickup",
+            environment=self._settings.environment,
+            domain="serving",
+        )
         if prihlaska_id <= 0:
             raise OrderBusinessError(
                 ErrorCode.OUT_OF_SCOPE_OR_INACTIVE,
