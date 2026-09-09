@@ -1,7 +1,13 @@
-# RELEASE_VALIDATION — JidelnaLocalLite 0.6.0 (Flet target)
+# RELEASE_VALIDATION — JLL 0.6.0 (Flet target)
 
-**signature_status:** UNSIGNED
-**UI target:** Flet (`python -m jll` → `jll.flet_ui`)
+**product_name:** JLL  
+**product_version:** 0.6.0  
+**file_version:** 0.6.0.0  
+**company_name:** HanzG  
+**signature_status:** UNSIGNED  
+**signature_policy:** UNSIGNED_BY_DESIGN  
+**authenticode_required:** false  
+**UI target:** Flet (`python -m jll` → `jll.flet_ui`)  
 **PySide6:** reference/legacy only
 
 ## Gates
@@ -9,15 +15,23 @@
 | Gate | Výsledek |
 | --- | --- |
 | Intent safety (ADD↛DELETE) | PASS |
-| Atomic DinerDay+version snapshot | PASS (code + integration test) |
-| Flet marker poll + settle | PASS (implemented) |
-| MW-05/06/07 dedicated | PASS (oracles added) |
-| Production first-run wizard | PASS (LAB\|PRODUCTION mode) |
+| Atomic DinerDay+version snapshot | PASS |
+| Flet marker poll + settle | PASS |
+| MW-05/06/07 dedicated | PASS |
+| Production first-run wizard | PASS |
 | Production write policy backend | PASS |
 | Production write policy Flet GUI | PASS |
-| Production identity VED/SUP | PARTIAL (VED+SUP first-run OK; create-user blocked) |
-| Packaged Flet EXE | follow-up build |
-| Installer / Authenticode | BLOCKED (ISCC/cert) |
+| Windows VersionInfo (EXE) | REQUIRED |
+| Windows VersionInfo (Setup) | REQUIRED |
+| Authenticode | NOT REQUIRED |
+| Packaged Flet EXE | follow release build |
+| Installer | UNSIGNED BY DESIGN |
+
+## Signing policy
+
+Authenticode není požadavek pro JLL 0.6.0. Absence digitálního podpisu
+není release blocker. Release musí zůstat transparentně označený jako
+`UNSIGNED` / `UNSIGNED_BY_DESIGN`. Self-signed certifikát se nepřidává.
 
 ## Residual risk
 

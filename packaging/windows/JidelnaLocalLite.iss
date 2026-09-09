@@ -1,11 +1,13 @@
 ; Inno Setup script for JidelnaLocalLite (Windows production candidate).
-; ProductName: JidelnaLocalLite
-; Do not invent a company/publisher legal name — AppPublisher uses product name only.
+; Display product name: JLL. Installer file: JidelnaLocalLite-0.6.0-Setup.exe
+; Authenticode is NOT REQUIRED — release is UNSIGNED BY DESIGN.
 ; Build after PyInstaller onedir: dist\JidelnaLocalLite\
-; This candidate is UNSIGNED unless an Authenticode cert is wired externally.
 
 #define MyAppName "JidelnaLocalLite"
+#define MyProductName "JLL"
+#define MyCompany "HanzG"
 #define MyAppVersion "0.6.0"
+#define MyFileVersion "0.6.0.0"
 #define MyAppExeName "JidelnaLocalLite.exe"
 ; Paths relative to this .iss file (packaging/windows/).
 #define MyOnedirSource "..\..\dist\JidelnaLocalLite"
@@ -13,12 +15,13 @@
 
 [Setup]
 AppId={{A6F2C8E1-4B7D-4F9A-9C31-8E5D2A7B6C10}
-AppName={#MyAppName}
+AppName={#MyProductName}
 AppVersion={#MyAppVersion}
-AppVerName={#MyAppName} {#MyAppVersion}
-AppPublisher={#MyAppName}
+AppVerName={#MyProductName} {#MyAppVersion}
+AppPublisher={#MyCompany}
+AppCopyright=Copyright © 2026 HanzG
 DefaultDirName={autopf}\{#MyAppName}
-DefaultGroupName={#MyAppName}
+DefaultGroupName={#MyProductName}
 DisableProgramGroupPage=yes
 OutputDir={#MyOutputDir}
 OutputBaseFilename={#MyAppName}-{#MyAppVersion}-Setup
@@ -28,9 +31,16 @@ WizardStyle=modern
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-UninstallDisplayName={#MyAppName}
+UninstallDisplayName={#MyProductName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
-; SignTool intentionally unset — unsigned candidate unless cert is provided.
+VersionInfoVersion={#MyFileVersion}
+VersionInfoCompany={#MyCompany}
+VersionInfoDescription=JLL – Jídelna Lokal Lite Setup
+VersionInfoProductName={#MyProductName}
+VersionInfoProductVersion={#MyAppVersion}
+VersionInfoCopyright=Copyright © 2026 HanzG
+VersionInfoOriginalFileName={#MyAppName}-{#MyAppVersion}-Setup.exe
+; SignTool intentionally unset — UNSIGNED BY DESIGN (Authenticode not required).
 
 [Languages]
 Name: "czech"; MessagesFile: "compiler:Languages\Czech.isl"
@@ -49,11 +59,11 @@ Name: "{commonappdata}\{#MyAppName}\logs"; Permissions: users-modify
 Name: "{commonappdata}\{#MyAppName}\reset-backups"; Permissions: users-modify
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{group}\{#MyProductName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{autodesktop}\{#MyProductName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Spustit {#MyAppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Spustit {#MyProductName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 ; Do NOT wipe ProgramData config/logs/reset-backups by default.

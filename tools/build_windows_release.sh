@@ -77,9 +77,10 @@ find_iscc() {
     "/c/Program Files/Inno Setup 6/ISCC.exe" \
     "C:/Program Files (x86)/Inno Setup 6/ISCC.exe" \
     "C:/Program Files/Inno Setup 6/ISCC.exe" \
-    "$LOCALAPPDATA/Programs/Inno Setup 6/ISCC.exe" \
-    "/c/Users/$USER/AppData/Local/Programs/Inno Setup 6/ISCC.exe"
+    "${LOCALAPPDATA:-}/Programs/Inno Setup 6/ISCC.exe" \
+    "${USERPROFILE:-}/AppData/Local/Programs/Inno Setup 6/ISCC.exe"
   do
+    [[ -n "${candidate}" && "${candidate}" != "/Programs/Inno Setup 6/ISCC.exe" ]] || continue
     if [[ -x "$candidate" || -f "$candidate" ]]; then
       printf '%s\n' "$candidate"
       return 0
@@ -107,8 +108,9 @@ PYTHON_CMD="$(find_python)" || {
 
 printf '==> JidelnaLocalLite Windows release scaffolding build\n'
 printf 'Root: %s\n' "$ROOT"
-printf 'Release version label: %s (scaffolding; package version may still be 0.5.x)\n' "$RELEASE_VERSION"
+printf 'Release version label: %s\n' "$RELEASE_VERSION"
 printf 'Python launcher: %s\n' "$PYTHON_CMD"
+printf 'Signature policy: UNSIGNED BY DESIGN (Authenticode NOT REQUIRED)\n'
 
 if [[ "$CLEAN_VENV" == "1" && -d "$VENV_DIR" ]]; then
   printf '==> Removing previous release venv: %s\n' "$VENV_DIR"
@@ -143,6 +145,45 @@ fi
 printf 'Installing editable package with extra: [%s]\n' "$EXTRA"
 "$VENV_PYTHON" -m pip install -e ".[${EXTRA}]"
 "$VENV_PYTHON" -m pip install "pyinstaller>=6.3,<8"
+
+printf '==> Version consistency preflight\n'
+export JLL_PF_ROOT="$ROOT"
+export JLL_PF_RELEASE="$RELEASE_VERSION"
+if ! "$VENV_PYTHON" - <<'PY'
+import os
+import re
+import sys
+from pathlib import Path
+
+root = Path(os.environ["JLL_PF_ROOT"])
+release = os.environ["JLL_PF_RELEASE"]
+pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', pyproject)
+if not m:
+    print("pyproject.toml: missing [project].version", file=sys.stderr)
+    raise SystemExit(1)
+pkg = m.group(1)
+iss = (root / "packaging/windows/JidelnaLocalLite.iss").read_text(encoding="utf-8")
+vi = (root / "packaging/windows/version_info.txt").read_text(encoding="utf-8")
+if pkg != release:
+    print(f"pyproject version {pkg!r} != RELEASE_VERSION {release!r}", file=sys.stderr)
+    raise SystemExit(1)
+if f'#define MyAppVersion "{release}"' not in iss:
+    print("Inno MyAppVersion mismatch", file=sys.stderr)
+    raise SystemExit(1)
+if f"StringStruct('ProductVersion', '{release}')" not in vi:
+    print("version_info ProductVersion mismatch", file=sys.stderr)
+    raise SystemExit(1)
+file_version = f"{release}.0" if release.count(".") == 2 else release
+if f"StringStruct('FileVersion', '{file_version}')" not in vi:
+    print(f"version_info FileVersion must be {file_version}", file=sys.stderr)
+    raise SystemExit(1)
+print(f"version consistency OK: project={pkg} product={release} file={file_version}")
+PY
+then
+  printf 'ERROR: version consistency preflight failed.\n' >&2
+  exit 6
+fi
 
 if [[ ! -f "$SPEC" ]]; then
   printf 'ERROR: missing PyInstaller spec: %s\n' "$SPEC" >&2
@@ -193,7 +234,8 @@ if [[ -n "$SIGN_CERT" ]]; then
     printf 'WARNING: SIGN_CERT set but signtool.exe not found — UNSIGNED.\n' >&2
   fi
 else
-  printf '==> No JLL_SIGN_CERT — artefacts marked UNSIGNED (candidate only).\n'
+  printf '==> No signing credential configured.\n'
+  printf '==> Building UNSIGNED BY DESIGN release.\n'
 fi
 
 INSTALLER=""
@@ -267,6 +309,10 @@ export JLL_BI_PYI_VERSION="$PYI_VERSION"
 export JLL_BI_ISCC_VERSION="$ISCC_VERSION"
 export JLL_BI_ARCH="$ARCH"
 export JLL_BI_SIGNATURE_STATUS="$SIGNATURE_STATUS"
+export JLL_BI_SIGNATURE_POLICY="UNSIGNED_BY_DESIGN"
+export JLL_BI_DISPLAY_PRODUCT_NAME="JLL"
+export JLL_BI_FILE_VERSION="${RELEASE_VERSION}.0"
+export JLL_BI_COMPANY_NAME="HanzG"
 export JLL_BI_EXE_SHA="$EXE_SHA"
 export JLL_BI_INSTALLER_BASENAME="$INSTALLER_BASENAME"
 export JLL_BI_INSTALLER_SHA="$INSTALLER_SHA"
@@ -283,7 +329,11 @@ if not installer_name or installer_sha in (None, "", "n/a"):
     installer_sha = None
 
 payload = {
-    "product_name": os.environ["JLL_BI_PRODUCT_NAME"],
+    "product_name": os.environ["JLL_BI_DISPLAY_PRODUCT_NAME"],
+    "bundle_name": os.environ["JLL_BI_PRODUCT_NAME"],
+    "product_version": os.environ["JLL_BI_RELEASE_VERSION"],
+    "file_version": os.environ["JLL_BI_FILE_VERSION"],
+    "company_name": os.environ["JLL_BI_COMPANY_NAME"],
     "release_label": os.environ["JLL_BI_RELEASE_VERSION"],
     "package_version": os.environ["JLL_BI_PKG_VERSION"],
     "git_commit": os.environ["JLL_BI_GIT_SHA"],
@@ -296,18 +346,21 @@ payload = {
     "inno_setup": os.environ["JLL_BI_ISCC_VERSION"],
     "architecture": os.environ["JLL_BI_ARCH"],
     "signature_status": os.environ["JLL_BI_SIGNATURE_STATUS"],
+    "signature_policy": os.environ["JLL_BI_SIGNATURE_POLICY"],
     "signed_release_claim": False,
+    "authenticode_required": False,
     "smartscreen_risk": (
-        "residual — unsigned or new publisher binaries may still "
-        "trigger SmartScreen/AV warnings"
+        "residual — unsigned binaries may still trigger SmartScreen/AV warnings; "
+        "Authenticode is NOT REQUIRED for this release"
     ),
     "onedir_exe": "JidelnaLocalLite/JidelnaLocalLite.exe",
     "onedir_exe_sha256": os.environ["JLL_BI_EXE_SHA"],
     "installer": installer_name,
     "installer_sha256": installer_sha,
     "notes": [
-        "Scaffolding candidate for 0.6.0 Windows production profile.",
-        "Do not treat UNSIGNED artefacts as a signed release.",
+        "JLL 0.6.0 Windows release — UNSIGNED BY DESIGN.",
+        "Authenticode is NOT REQUIRED; signature_status=UNSIGNED is expected.",
+        "Windows VersionInfo metadata is required and verified on EXE/Setup.",
         "No automatic DB migration is performed by the installer.",
     ],
 }
@@ -320,7 +373,7 @@ PY
 SUMS="$RELEASE_DIR/SHA256SUMS.txt"
 {
   printf '# SHA256SUMS for %s release label %s\n' "$PRODUCT_NAME" "$RELEASE_VERSION"
-  printf '# signature_status=%s\n' "$SIGNATURE_STATUS"
+  printf '# signature_status=%s signature_policy=UNSIGNED_BY_DESIGN\n' "$SIGNATURE_STATUS"
   printf '%s  %s/%s.exe\n' "$EXE_SHA" "$ONEDIR_NAME" "$PRODUCT_NAME"
   if [[ "$INSTALLER_SHA" != "n/a" ]]; then
     printf '%s  %s\n' "$INSTALLER_SHA" "$(basename "$INSTALLER")"
@@ -331,9 +384,9 @@ SUMS="$RELEASE_DIR/SHA256SUMS.txt"
 
 printf '\n==> Done\n'
 printf 'Release dir: %s\n' "$RELEASE_DIR"
-printf 'Signature:   %s\n' "$SIGNATURE_STATUS"
+printf 'Signature:   %s (%s)\n' "$SIGNATURE_STATUS" "UNSIGNED_BY_DESIGN"
 printf 'BUILD_INFO:  %s\n' "$BUILD_INFO"
 printf 'SHA256SUMS:  %s\n' "$SUMS"
-if [[ "$SIGNATURE_STATUS" != "SIGNED" ]]; then
-  printf '\n*** UNSIGNED CANDIDATE — not a signed production release ***\n'
+if [[ "$SIGNATURE_STATUS" == "UNSIGNED" ]]; then
+  printf '\n*** UNSIGNED BY DESIGN — Authenticode NOT REQUIRED for this release ***\n'
 fi
