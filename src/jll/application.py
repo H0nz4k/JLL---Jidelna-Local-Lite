@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 
+from .orders.concurrency import OrderVersionToken
 from .orders.errors import ErrorCode, OrderBusinessError
 from .orders.models import OrderAction, OrderCommand, OrderResult
 from .orders.service import OrderService
@@ -168,11 +169,21 @@ class OrderApplicationService:
         target: date,
         meal_type: str,
         menu: int,
+        *,
+        expected_action: OrderAction,
+        expected_version: OrderVersionToken,
+        expected_ordered_menu: int | None,
     ) -> MutationOutcome:
+        """Provede UI intent ze renderovaného stavu.
+
+        Intent se nesmí invertovat podle fresh DB (ADD↛DELETE). Token musí
+        reprezentovat stav, který uživatel viděl — ne čerstvý read při clicku.
+        """
+
         started = time.perf_counter()
         result: OrderResult | None = None
         primary_error: SafeError | None = None
-        action: OrderAction | None = None
+        action: OrderAction | None = expected_action
         try:
             policy = self.policy
             policy.require(Permission.ORDERS_CHANGE)
@@ -187,17 +198,24 @@ class OrderApplicationService:
                     ErrorCode.MENU_NOT_AVAILABLE,
                     "Typ stravy již není dostupný.",
                 )
-            action = determine_action(
+            if meal.ordered_menu != expected_ordered_menu:
+                raise OrderBusinessError(
+                    ErrorCode.ORDER_STALE_STATE,
+                    "Objednávky se mezitím změnily v jiné aplikaci. "
+                    "Stav byl obnoven. Zkontrolujte prosím změnu znovu.",
+                )
+            fresh_action = determine_action(
                 meal,
                 menu,
                 bypass_order_deadlines=policy.bypass_order_deadlines,
             )
-            expected_version = self.order_service.read_version(
-                evidcislo,
-                target.year,
-                target.month,
-                meal_types=[item.meal_type for item in current.meals],
-            )
+            if fresh_action is not expected_action:
+                raise OrderBusinessError(
+                    ErrorCode.ORDER_STALE_STATE,
+                    "Objednávky se mezitím změnily v jiné aplikaci. "
+                    "Stav byl obnoven. Zkontrolujte prosím změnu znovu.",
+                )
+            action = expected_action
             command = OrderCommand(
                 action=action,
                 evidcislo=evidcislo,

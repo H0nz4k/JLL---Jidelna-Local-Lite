@@ -305,6 +305,9 @@ def test_a_to_b_intent_calls_order_service_once_and_refreshes() -> None:
         date(2026, 9, 4),
         "Oběd-B",
         1,
+        expected_action=OrderAction.MENU_ADD,
+        expected_version=write.read_version(123, 2026, 9),
+        expected_ordered_menu=None,
     )
 
     assert outcome.succeeded
@@ -337,6 +340,9 @@ def test_failed_write_still_refreshes_database_state() -> None:
         date(2026, 9, 4),
         "Oběd-B",
         1,
+        expected_action=OrderAction.MENU_ADD,
+        expected_version=write.read_version(123, 2026, 9),
+        expected_ordered_menu=None,
     )
 
     assert not outcome.succeeded
@@ -366,6 +372,9 @@ def test_orders_change_permission_is_enforced_before_write() -> None:
         date(2026, 9, 4),
         "Oběd-B",
         1,
+        expected_action=OrderAction.MENU_ADD,
+        expected_version=write.read_version(123, 2026, 9),
+        expected_ordered_menu=None,
     )
 
     assert not outcome.succeeded

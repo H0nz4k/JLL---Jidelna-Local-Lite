@@ -183,6 +183,7 @@ class MainWindow(QMainWindow):
         self._left_panel_width: int | None = None
         self._detail_split_by_user = False
         self._order_marker_fingerprint: str | None = None
+        self._order_version = None
         self._order_poll_paused = False
         self._pending_settle_id = 0
 
@@ -1724,8 +1725,18 @@ class MainWindow(QMainWindow):
         button.setProperty("variant", "pending")
         theme.repolish(button)
         for row in self._menu_rows.values():
-            row.set_clickable(False, "Probíhá LAB operace…")
-        self.statusBar().showMessage("Provádím atomickou LAB operaci…")
+            row.set_clickable(False, "Probíhá operace…")
+        self.statusBar().showMessage("Provádím atomickou operaci…")
+        expected_version = self._order_version
+        if expected_version is None:
+            expected_version = self.application_service.order_service.read_version(
+                day.diner.evidcislo,
+                day.target_date.year,
+                day.target_date.month,
+                meal_types=[item.meal_type for item in day.meals],
+            )
+            self._order_version = expected_version
+        expected_ordered = meal.ordered_menu
         worker = FunctionWorker(
             request_id,
             lambda: self.application_service.execute_selection(
@@ -1733,6 +1744,9 @@ class MainWindow(QMainWindow):
                 day.target_date,
                 meal.meal_type,
                 option.menu,
+                expected_action=action,
+                expected_version=expected_version,
+                expected_ordered_menu=expected_ordered,
             ),
         )
         worker.signals.succeeded.connect(self._mutation_succeeded)
@@ -1813,8 +1827,17 @@ class MainWindow(QMainWindow):
             self._load_current_day()
 
     def _arm_order_marker_poll(self, day: DinerDay) -> None:
-        del day  # signature kept for call-site clarity
-        self._order_marker_fingerprint = None
+        try:
+            self._order_version = self.application_service.order_service.read_version(
+                day.diner.evidcislo,
+                day.target_date.year,
+                day.target_date.month,
+                meal_types=[meal.meal_type for meal in day.meals],
+            )
+            self._order_marker_fingerprint = self._order_version.fingerprint()
+        except Exception:
+            self._order_version = None
+            self._order_marker_fingerprint = None
         if not self.order_marker_timer.isActive():
             self.order_marker_timer.start()
 
@@ -1834,6 +1857,7 @@ class MainWindow(QMainWindow):
         except Exception:
             return
         fingerprint = version.fingerprint()
+        self._order_version = version
         if self._order_marker_fingerprint is None:
             self._order_marker_fingerprint = fingerprint
             return

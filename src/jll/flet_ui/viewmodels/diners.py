@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from ...application import OrderApplicationService
+from ...application import OrderApplicationService, determine_action
+from ...orders.concurrency import OrderVersionToken
+from ...orders.errors import OrderBusinessError
+from ...orders.models import OrderAction
 from ...policy import Permission
 from ...read_models import BusinessCalendar, DinerDay, DinerSummary, HomeTodayOverview
 from ...read_service import OrderReadService
@@ -235,12 +238,76 @@ class DinersViewModel:
             organization_name=organization,
         )
 
-    def apply_menu(self, evidcislo: int, target: date, meal_type: str, menu: int):
-        return self.orders.execute_selection(evidcislo, target, meal_type, menu)
+    def apply_menu(
+        self,
+        evidcislo: int,
+        target: date,
+        meal_type: str,
+        menu: int,
+        *,
+        expected_action: OrderAction,
+        expected_version: OrderVersionToken,
+        expected_ordered_menu: int | None,
+    ):
+        return self.orders.execute_selection(
+            evidcislo,
+            target,
+            meal_type,
+            menu,
+            expected_action=expected_action,
+            expected_version=expected_version,
+            expected_ordered_menu=expected_ordered_menu,
+        )
 
-    def unsubscribe(self, evidcislo: int, target: date, meal_type: str, ordered_menu: int):
+    def unsubscribe(
+        self,
+        evidcislo: int,
+        target: date,
+        meal_type: str,
+        ordered_menu: int,
+        *,
+        expected_version: OrderVersionToken,
+        expected_ordered_menu: int | None,
+    ):
         """Explicitní Odhlásit – klik na objednané menu sám o sobě nemaže."""
 
         return self.orders.execute_selection(
-            evidcislo, target, meal_type, ordered_menu
+            evidcislo,
+            target,
+            meal_type,
+            ordered_menu,
+            expected_action=OrderAction.MENU_DELETE,
+            expected_version=expected_version,
+            expected_ordered_menu=expected_ordered_menu,
         )
+
+    def read_order_version(self, day: DinerDay) -> OrderVersionToken:
+        return self.orders.order_service.read_version(
+            day.diner.evidcislo,
+            day.target_date.year,
+            day.target_date.month,
+            meal_types=[meal.meal_type for meal in day.meals],
+        )
+
+    def rendered_order_intent(
+        self,
+        day: DinerDay,
+        meal_type: str,
+        menu: int,
+    ) -> tuple[OrderAction, int | None]:
+        """Intent ze zobrazeného DinerDay — ne z fresh DB reloadu."""
+
+        from ...orders.errors import ErrorCode
+
+        meal = next((item for item in day.meals if item.meal_type == meal_type), None)
+        if meal is None:
+            raise OrderBusinessError(
+                ErrorCode.MENU_NOT_AVAILABLE,
+                "Typ stravy již není dostupný.",
+            )
+        try:
+            bypass = self.orders.policy.bypass_order_deadlines
+        except Exception:
+            bypass = False
+        action = determine_action(meal, menu, bypass_order_deadlines=bypass)
+        return action, meal.ordered_menu

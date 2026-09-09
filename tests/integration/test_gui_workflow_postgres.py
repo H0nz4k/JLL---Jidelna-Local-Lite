@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from jll.application import OrderApplicationService
+from jll.application import OrderApplicationService, determine_action
 from jll.identity import ActorContext
 from jll.orders.errors import ErrorCode
 from jll.orders.models import OrderAction, OrderServiceSettings
@@ -21,6 +21,31 @@ CATEGORY = "3"
 
 def state(view, code: str) -> str | None:
     return next(meal.current_state for meal in view.meals if meal.code == code)
+
+
+def execute_rendered(application: OrderApplicationService, meal_type: str, menu: int):
+    day = application.read_service.load_diner_day(EVIDCISLO, TARGET)
+    meal = next(item for item in day.meals if item.meal_type == meal_type)
+    action = determine_action(
+        meal,
+        menu,
+        bypass_order_deadlines=application.policy.bypass_order_deadlines,
+    )
+    version = application.order_service.read_version(
+        EVIDCISLO,
+        TARGET.year,
+        TARGET.month,
+        meal_types=[item.meal_type for item in day.meals],
+    )
+    return application.execute_selection(
+        EVIDCISLO,
+        TARGET,
+        meal_type,
+        menu,
+        expected_action=action,
+        expected_version=version,
+        expected_ordered_menu=meal.ordered_menu,
+    )
 
 
 def test_gui_end_to_end_add_variant_change_delete_and_refresh(
@@ -77,20 +102,20 @@ def test_gui_end_to_end_add_variant_change_delete_and_refresh(
     assert state(initial, "A") in {"N", "S"}
     assert state(initial, "B") in {"N", "S"}
 
-    added = application.execute_selection(EVIDCISLO, TARGET, "Oběd-A", 1)
+    added = execute_rendered(application, "Oběd-A", 1)
     assert added.succeeded
     assert added.action is OrderAction.MENU_ADD
     assert added.refreshed is not None
     assert state(added.refreshed, "A") == "1"
 
-    changed = application.execute_selection(EVIDCISLO, TARGET, "Oběd-B", 1)
+    changed = execute_rendered(application, "Oběd-B", 1)
     assert changed.succeeded
     assert changed.action is OrderAction.MENU_ADD
     assert changed.refreshed is not None
     assert state(changed.refreshed, "A") == "N"
     assert state(changed.refreshed, "B") == "1"
 
-    deleted = application.execute_selection(EVIDCISLO, TARGET, "Oběd-B", 1)
+    deleted = execute_rendered(application, "Oběd-B", 1)
     assert deleted.succeeded
     assert deleted.action is OrderAction.MENU_DELETE
     assert deleted.refreshed is not None
@@ -117,7 +142,7 @@ def test_gui_end_to_end_add_variant_change_delete_and_refresh(
         )
     assert read.search_diners(str(other[0])) == []
 
-    expired = application.execute_selection(EVIDCISLO, TARGET, "Oběd-A", 1)
+    expired = execute_rendered(application, "Oběd-A", 1)
     assert not expired.succeeded
     assert expired.error is not None
     assert expired.error.code == ErrorCode.DEADLINE_EXPIRED.value

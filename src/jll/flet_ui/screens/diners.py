@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+import logging
 import threading
+import time
 from datetime import date
 
 import flet as ft
 
+from ...application import ERROR_TEXTS
 from ...chip_reader import (
     ChipReaderCancelled,
     ChipReaderTimeout,
     UnavailableChipReader,
     available_serial_ports,
 )
+from ...orders.concurrency import IntendedDayState, OrderVersionToken, ProbeStatus
+from ...orders.errors import ErrorCode, OrderBusinessError
+from ...orders.models import OrderAction
 from ...policy import Permission
 from ...read_models import DinerDay, HomeTodayOverview, MealDay
 from .. import theme
@@ -26,8 +32,11 @@ from ..viewmodels.diners import DinersViewModel
 
 _SEARCH_HINT = "Hledat jméno / ev. číslo / čip…"
 _HOME_REFRESH_SECONDS = 60
+_ORDER_MARKER_POLL_SECONDS = 2.0
+_SETTLE_DELAY_SECONDS = 0.4
 # List keyboard focus: -1 = search field, 0..n-1 = list row.
 _SEARCH_FOCUS = -1
+LOGGER = logging.getLogger(__name__)
 
 
 def next_list_focus(focus: int, delta: int, count: int) -> int:
@@ -49,6 +58,11 @@ class DinersScreen:
         self.state = state
         self.vm = DinersViewModel(state)
         self._day: DinerDay | None = None
+        self._order_version: OrderVersionToken | None = None
+        self._order_fingerprint: str | None = None
+        self._order_poll_paused = False
+        self._order_poll_generation = 0
+        self._mutation_generation = 0
         self._results: list = []
         self._focus_index = _SEARCH_FOCUS
         self._home: HomeTodayOverview | None = None
@@ -58,6 +72,8 @@ class DinersScreen:
         self._idle.route_is_diners = True
         self._home_refresh_stop = threading.Event()
         self._idle_watch_stop = threading.Event()
+        self._order_poll_stop = threading.Event()
+        self._order_poll_stop.set()
         self.search = ft.TextField(
             hint_text=_SEARCH_HINT,
             hint_style=theme.role_style(
@@ -108,11 +124,15 @@ class DinersScreen:
     def dispose(self) -> None:
         self._home_refresh_stop.set()
         self._idle_watch_stop.set()
+        self._stop_order_marker_poll()
 
     def go_home(self, *, clear_search: bool = True) -> None:
         """Privacy reset → HOME."""
 
+        self._stop_order_marker_poll()
         self._day = None
+        self._order_version = None
+        self._order_fingerprint = None
         self.state.selected_evidcislo = None
         self._idle.set_diner_open(False)
         self._idle.modal_open = False
@@ -538,6 +558,7 @@ class DinersScreen:
         self.note_activity()
         try:
             self._day = self.vm.select_diner(evidcislo)
+            self._capture_order_version(self._day)
         except Exception as exc:
             message_dialog(self.page, title="Strávník", body=str(exc))
             return
@@ -545,6 +566,7 @@ class DinersScreen:
         self._home_visible = False
         self._idle.set_diner_open(True)
         self._render_detail()
+        self._arm_order_marker_poll()
         query = self.search.value or ""
         self._refresh_list(self.vm.search(query), prefer_evid=evidcislo)
         self.page.update()
@@ -552,6 +574,11 @@ class DinersScreen:
 
     def _render_detail(self) -> None:
         day = self._day
+        if day is not None and self._order_version is None:
+            try:
+                self._capture_order_version(day)
+            except Exception:
+                LOGGER.exception("order version capture failed")
         assert day is not None
         diner = day.diner
         edit = self.state.diner_edit_state()
@@ -1167,11 +1194,255 @@ class DinersScreen:
         target = date(current.year, current.month, day_num)
         try:
             self._day = self.vm.set_day(target)
+            self._capture_order_version(self._day)
         except Exception as exc:
             message_dialog(self.page, title="Den", body=str(exc))
             return
         self._render_detail()
+        self._arm_order_marker_poll()
         self.focus_search()
+
+    def _capture_order_version(self, day: DinerDay) -> None:
+        self._order_version = self.vm.read_order_version(day)
+        self._order_fingerprint = self._order_version.fingerprint()
+
+    def _stop_order_marker_poll(self) -> None:
+        self._order_poll_stop.set()
+        self._order_poll_generation += 1
+
+    def _arm_order_marker_poll(self) -> None:
+        self._stop_order_marker_poll()
+        if self._day is None:
+            return
+        self._order_poll_stop = threading.Event()
+        stop = self._order_poll_stop
+        generation = self._order_poll_generation
+
+        def _loop() -> None:
+            while not stop.wait(_ORDER_MARKER_POLL_SECONDS):
+                if generation != self._order_poll_generation:
+                    return
+                if self._order_poll_paused or self._day is None:
+                    continue
+                try:
+                    version = self.vm.read_order_version(self._day)
+                except Exception:
+                    LOGGER.exception("order marker poll failed")
+                    continue
+                fingerprint = version.fingerprint()
+                if (
+                    self._order_fingerprint is not None
+                    and fingerprint != self._order_fingerprint
+                ):
+                    evid = self._day.diner.evidcislo
+
+                    def _apply(e=evid, v=version, fp=fingerprint) -> None:
+                        if self._day is None or self._day.diner.evidcislo != e:
+                            return
+                        try:
+                            self._day = self.vm.set_day(self._day.target_date)
+                            self._order_version = v
+                            self._order_fingerprint = fp
+                            self._render_detail()
+                            self.page.update()
+                            message_dialog(
+                                self.page,
+                                title="Objednávka",
+                                body=ERROR_TEXTS[ErrorCode.ORDER_STALE_STATE],
+                            )
+                        except Exception as exc:
+                            LOGGER.exception("order marker refresh failed")
+                            message_dialog(
+                                self.page, title="Objednávka", body=str(exc)
+                            )
+
+                    self.page.run_thread(_apply)
+                else:
+                    self._order_version = version
+                    self._order_fingerprint = fingerprint
+
+        threading.Thread(target=_loop, name="jll-order-marker-poll", daemon=True).start()
+
+    def _schedule_settle_probe(self, outcome) -> None:
+        result = outcome.result
+        if result is None or getattr(result, "committed_version", None) is None:
+            return
+        day = self._day
+        if day is None:
+            return
+        committed = result.committed_version
+        datum = result.datum
+        intended = tuple(
+            IntendedDayState(
+                typstravy=item.typstravy,
+                day=datum.day,
+                expected_state=item.after_state,
+            )
+            for item in getattr(result, "committed_transitions", ())
+        )
+        evid = day.diner.evidcislo
+        target = day.target_date
+        generation = self._mutation_generation
+
+        def _run() -> None:
+            time.sleep(_SETTLE_DELAY_SECONDS)
+            if generation != self._mutation_generation or self._day is None:
+                return
+            if self._day.diner.evidcislo != evid:
+                return
+            try:
+                probe = self.vm.orders.order_service.settle_verify(
+                    evidcislo=evid,
+                    datum=target,
+                    intended=intended,
+                    committed_version=committed,
+                )
+            except Exception:
+                LOGGER.exception("settle verify failed")
+                return
+
+            def _apply() -> None:
+                if generation != self._mutation_generation or self._day is None:
+                    return
+                if probe.status is ProbeStatus.CONFLICT:
+                    message_dialog(
+                        self.page,
+                        title="Konflikt souběžné změny",
+                        body=probe.message
+                        or ERROR_TEXTS[ErrorCode.ORDER_EXTERNAL_CHANGE],
+                    )
+                    try:
+                        self._day = self.vm.set_day(self._day.target_date)
+                        self._capture_order_version(self._day)
+                        self._render_detail()
+                        self.page.update()
+                    except Exception as exc:
+                        message_dialog(self.page, title="Objednávka", body=str(exc))
+                elif probe.status is ProbeStatus.EXTERNAL_OK and probe.message:
+                    try:
+                        self._day = self.vm.set_day(self._day.target_date)
+                        self._capture_order_version(self._day)
+                        self._render_detail()
+                        self.page.update()
+                    except Exception:
+                        pass
+                elif probe.status is ProbeStatus.CONSISTENCY:
+                    message_dialog(
+                        self.page,
+                        title="Nekonzistence",
+                        body=probe.message
+                        or ERROR_TEXTS[ErrorCode.POSTCONDITION_FAILED],
+                    )
+
+            self.page.run_thread(_apply)
+
+        threading.Thread(target=_run, name="jll-order-settle", daemon=True).start()
+
+    def _handle_mutation_outcome(self, outcome, *, title: str) -> None:
+        if outcome.error is not None:
+            message_dialog(self.page, title=title, body=outcome.error.user_message)
+        if outcome.notice:
+            message_dialog(self.page, title="Upozornění", body=outcome.notice)
+        if outcome.refreshed is not None:
+            self._day = outcome.refreshed
+            try:
+                self._capture_order_version(self._day)
+            except Exception:
+                LOGGER.exception("post-mutation version capture failed")
+            self._render_detail()
+        if outcome.succeeded:
+            self._schedule_settle_probe(outcome)
+        self.note_activity()
+        self.focus_search()
+
+    def _order(self, meal_type: str, menu: int) -> None:
+        if self._day is None or not self.vm.can_change_orders():
+            message_dialog(self.page, title="Objednávka", body="Nemáte oprávnění měnit objednávky.")
+            return
+        if self._order_version is None:
+            try:
+                self._capture_order_version(self._day)
+            except Exception as exc:
+                message_dialog(self.page, title="Objednávka", body=str(exc))
+                return
+        try:
+            expected_action, expected_ordered = self.vm.rendered_order_intent(
+                self._day, meal_type, menu
+            )
+        except OrderBusinessError as exc:
+            message_dialog(
+                self.page,
+                title="Objednávka",
+                body=ERROR_TEXTS.get(exc.code, str(exc)),
+            )
+            return
+        self._mutation_generation += 1
+        self._order_poll_paused = True
+        self.set_idle_suppressed(write=True)
+        try:
+            outcome = self.vm.apply_menu(
+                self._day.diner.evidcislo,
+                self._day.target_date,
+                meal_type,
+                menu,
+                expected_action=expected_action,
+                expected_version=self._order_version,
+                expected_ordered_menu=expected_ordered,
+            )
+        finally:
+            self._order_poll_paused = False
+            self.set_idle_suppressed(write=False)
+        self._handle_mutation_outcome(outcome, title="Objednávka")
+
+    def _unsubscribe(self, meal_type: str, menu: int) -> None:
+        if self._day is None:
+            return
+        if self._order_version is None:
+            try:
+                self._capture_order_version(self._day)
+            except Exception as exc:
+                message_dialog(self.page, title="Odhlášení", body=str(exc))
+                return
+        try:
+            expected_action, expected_ordered = self.vm.rendered_order_intent(
+                self._day, meal_type, menu
+            )
+        except OrderBusinessError as exc:
+            message_dialog(
+                self.page,
+                title="Odhlášení",
+                body=ERROR_TEXTS.get(exc.code, str(exc)),
+            )
+            return
+        if expected_action is not OrderAction.MENU_DELETE:
+            message_dialog(
+                self.page,
+                title="Odhlášení",
+                body=ERROR_TEXTS[ErrorCode.ORDER_STALE_STATE],
+            )
+            try:
+                self._day = self.vm.set_day(self._day.target_date)
+                self._capture_order_version(self._day)
+                self._render_detail()
+            except Exception:
+                pass
+            return
+        self._mutation_generation += 1
+        self._order_poll_paused = True
+        self.set_idle_suppressed(write=True)
+        try:
+            outcome = self.vm.unsubscribe(
+                self._day.diner.evidcislo,
+                self._day.target_date,
+                meal_type,
+                menu,
+                expected_version=self._order_version,
+                expected_ordered_menu=expected_ordered,
+            )
+        finally:
+            self._order_poll_paused = False
+            self.set_idle_suppressed(write=False)
+        self._handle_mutation_outcome(outcome, title="Odhlášení")
 
     def _menu_panel(self, day: DinerDay) -> ft.Control:
         title = theme.text(
@@ -1327,43 +1598,6 @@ class DinersScreen:
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             tight=True,
         )
-
-    def _order(self, meal_type: str, menu: int) -> None:
-        if self._day is None or not self.vm.can_change_orders():
-            message_dialog(self.page, title="Objednávka", body="Nemáte oprávnění měnit objednávky.")
-            return
-        self.set_idle_suppressed(write=True)
-        try:
-            outcome = self.vm.apply_menu(
-                self._day.diner.evidcislo, self._day.target_date, meal_type, menu
-            )
-        finally:
-            self.set_idle_suppressed(write=False)
-        if outcome.error is not None:
-            message_dialog(self.page, title="Objednávka", body=outcome.error.user_message)
-        if outcome.refreshed is not None:
-            self._day = outcome.refreshed
-            self._render_detail()
-        self.note_activity()
-        self.focus_search()
-
-    def _unsubscribe(self, meal_type: str, menu: int) -> None:
-        if self._day is None:
-            return
-        self.set_idle_suppressed(write=True)
-        try:
-            outcome = self.vm.unsubscribe(
-                self._day.diner.evidcislo, self._day.target_date, meal_type, menu
-            )
-        finally:
-            self.set_idle_suppressed(write=False)
-        if outcome.error is not None:
-            message_dialog(self.page, title="Odhlášení", body=outcome.error.user_message)
-        if outcome.refreshed is not None:
-            self._day = outcome.refreshed
-            self._render_detail()
-        self.note_activity()
-        self.focus_search()
 
     def _manual_pickup(self) -> None:
         self.note_activity()
