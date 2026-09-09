@@ -22,7 +22,7 @@ ConnectionFactory = Callable[[], Connection[Any]]
 
 
 @dataclass(frozen=True, slots=True)
-class LabConfig:
+class JllConfig:
     site_name: str
     site_id: str
     instance_id: str
@@ -125,7 +125,11 @@ class LabConfig:
         return psycopg.connect(**self.connection_parameters())
 
     def connection_parameters(self) -> dict[str, Any]:
-        password = os.environ.get("JLL_LAB_DB_PASSWORD")
+        env = self.environment.strip().lower()
+        password = None
+        if env == "lab":
+            password = os.environ.get("JLL_LAB_DB_PASSWORD")
+        # Production must never read JLL_LAB_DB_PASSWORD.
         if password is None:
             try:
                 password = keyring.get_password(
@@ -134,19 +138,27 @@ class LabConfig:
                 )
             except KeyringError:
                 password = None
+        if env == "production" and not password:
+            raise ValueError(
+                "Production DB heslo není v credential store. "
+                "Spusťte znovu first-run setup."
+            )
+        app_name = "jll-gui" if env == "production" else "jll-lab-gui"
         parameters: dict[str, Any] = {
             "host": self.host,
             "port": self.port,
             "dbname": self.database,
             "user": self.user,
             "connect_timeout": 5,
-            "application_name": "jll-lab-gui",
+            "application_name": app_name,
         }
         if password is not None:
             parameters["password"] = password
         return parameters
 
     def create_pool(self) -> ConnectionPool:
+        env = self.environment.strip().lower()
+        pool_name = "jll-gui" if env == "production" else "jll-lab-gui"
         pool = ConnectionPool(
             kwargs={
                 **self.connection_parameters(),
@@ -156,13 +168,17 @@ class LabConfig:
             max_size=5,
             timeout=5,
             open=False,
-            name="jll-lab-gui",
+            name=pool_name,
         )
         pool.open(wait=True, timeout=5)
         return pool
 
 
-def load_lab_config(path: str | Path) -> LabConfig:
+# Legacy aliases for compatibility with existing LAB tests/docs.
+LabConfig = JllConfig
+
+
+def load_config(path: str | Path) -> JllConfig:
     config_path = Path(path)
     try:
         raw = json.loads(config_path.read_text(encoding="utf-8"))
@@ -203,7 +219,7 @@ def load_lab_config(path: str | Path) -> LabConfig:
         )
     else:
         reader_mode = str(raw_mode)
-    return LabConfig(
+    return JllConfig(
         site_name=str(raw["site_name"]),
         site_id=str(raw["site_id"]),
         instance_id=str(raw["instance_id"]),
@@ -235,7 +251,7 @@ def load_lab_config(path: str | Path) -> LabConfig:
     )
 
 
-def save_lab_config(config: LabConfig, path: str | Path) -> None:
+def save_config(config: JllConfig, path: str | Path) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     data = {
@@ -275,3 +291,7 @@ def save_lab_config(config: LabConfig, path: str | Path) -> None:
         os.replace(temporary, target)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+load_lab_config = load_config
+save_lab_config = save_config

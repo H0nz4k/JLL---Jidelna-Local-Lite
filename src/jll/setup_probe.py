@@ -96,11 +96,55 @@ def probe_lab_database(
 
     normalized_host = host.lower().strip("[]")
     if normalized_host not in {"localhost", "127.0.0.1", "::1"}:
-        raise ValueError("Setup povoluje pouze loopback host.")
+        raise ValueError("LAB setup povoluje pouze loopback host.")
     if not database.startswith("jll_"):
         raise ValueError("LAB databáze musí začínat jll_.")
+    return _probe_database(
+        host=normalized_host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        require_loopback=True,
+    )
+
+
+def probe_production_database(
+    host: str,
+    port: int,
+    database: str,
+    user: str,
+    password: str,
+) -> DatabaseProbe:
+    """Read-only production probe — hostname/IP, bez jll_ prefixu."""
+
+    normalized_host = host.strip()
+    if not normalized_host:
+        raise ValueError("Host nesmí být prázdný.")
+    db = database.strip()
+    if not db:
+        raise ValueError("Název databáze nesmí být prázdný.")
+    return _probe_database(
+        host=normalized_host,
+        port=port,
+        database=db,
+        user=user,
+        password=password,
+        require_loopback=False,
+    )
+
+
+def _probe_database(
+    *,
+    host: str,
+    port: int,
+    database: str,
+    user: str,
+    password: str,
+    require_loopback: bool,
+) -> DatabaseProbe:
     parameters: dict[str, object] = {
-        "host": normalized_host,
+        "host": host,
         "port": port,
         "dbname": database,
         "user": user,
@@ -118,11 +162,16 @@ def probe_lab_database(
         ).fetchone()
         if identity is None:
             raise ValueError("Identitu databáze nelze načíst.")
-        if (
-            identity[0] != database
-            or not ipaddress.ip_address(identity[1]).is_loopback
-        ):
-            raise ValueError("Připojená databáze není lokální LAB.")
+        if identity[0] != database:
+            raise ValueError("Připojená databáze neodpovídá požadavku.")
+        if require_loopback:
+            try:
+                if not ipaddress.ip_address(str(identity[1])).is_loopback:
+                    raise ValueError("Připojená databáze není lokální LAB.")
+            except ValueError as exc:
+                if "Připojená databáze" in str(exc):
+                    raise
+                raise ValueError("Serverovou adresu nelze ověřit jako loopback.") from exc
 
         subject_row = connection.execute(
             """

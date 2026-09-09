@@ -53,12 +53,14 @@ class SetupScreen:
         title = self.vm.STEPS[step]
         self.body.controls.append(theme.text(title, theme.TextRole.ACTION))
         if step == 0:
-            self._step_db()
+            self._step_mode()
         elif step == 1:
-            self._step_station()
+            self._step_db()
         elif step == 2:
-            self._step_categories()
+            self._step_station()
         elif step == 3:
+            self._step_categories()
+        elif step == 4:
             self._step_sup()
         else:
             self._step_summary()
@@ -85,6 +87,50 @@ class SetupScreen:
             )
         self.body.controls.append(ft.Row(nav, spacing=theme.SPACING["sm"]))
         self.page.update()
+
+    def _step_mode(self) -> None:
+        d = self.vm.draft
+
+        def _set_lab(_e=None) -> None:
+            d.environment = "lab"
+            d.host = "127.0.0.1"
+            if not d.database.startswith("jll_"):
+                d.database = "jll_demo_lab"
+            self._render()
+
+        def _set_prod(_e=None) -> None:
+            d.environment = "production"
+            if d.host in {"127.0.0.1", "localhost", "::1"}:
+                d.host = ""
+            self._render()
+
+        self.body.controls.extend(
+            [
+                theme.text(
+                    "Zvolte režim instalace. Production cílí na zákaznickou DB "
+                    "se System ID pinningem (bez loopback / jll_ požadavku).",
+                    theme.TextRole.BODY,
+                    color=theme.COLORS["text_secondary"],
+                ),
+                ft.RadioGroup(
+                    value=d.environment,
+                    content=ft.Column(
+                        [
+                            ft.Radio(value="lab", label="LAB (loopback + jll_*)"),
+                            ft.Radio(
+                                value="production",
+                                label="PRODUCTION (hostname/IP + keyring)",
+                            ),
+                        ]
+                    ),
+                    on_change=lambda e: (
+                        _set_prod()
+                        if (e.control.value or "") == "production"
+                        else _set_lab()
+                    ),
+                ),
+            ]
+        )
 
     def _step_db(self) -> None:
         d = self.vm.draft
@@ -248,11 +294,12 @@ class SetupScreen:
         d = self.vm.draft
         self.body.controls.append(
             theme.text(
+                f"Režim: {d.environment}\n"
                 f"Databáze: {d.host}:{d.port}/{d.database}\n"
                 f"Provozovna: {d.site_name}\n"
                 f"Stanice: {d.station.name if d.station else '—'}\n"
                 f"Kategorie: {', '.join(d.categories)}\n"
-                f"Default uživatel: VED (bez PINu)\n"
+                f"Default operátor: VED\n"
                 f"SUP heslo: nastaveno",
                 theme.TextRole.BODY,
             )
@@ -269,9 +316,11 @@ class SetupScreen:
         if hasattr(self, "_persist"):
             self._persist()
         try:
-            if self.vm.draft.step == 0 and self.vm.draft.probe is None:
+            # step 1 = Databáze
+            if self.vm.draft.step == 1 and self.vm.draft.probe is None:
                 self.vm.test_database()
-            if self.vm.draft.step == 3:
+            # step 4 = SUP heslo
+            if self.vm.draft.step == 4:
                 self.vm.validate_sup()
         except Exception as exc:
             message_dialog(self.page, title="Setup", body=str(exc))

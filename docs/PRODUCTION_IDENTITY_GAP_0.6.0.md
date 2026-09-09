@@ -1,25 +1,30 @@
 # Production identity gap — 0.6.0
 
-Stav: **PARTIAL / audit only** (neblokuje Flet runtime switch, blokuje
-podepsaný production DONE).
+Stav: **PARTIAL** — VED+SUP first-run je funkční ve Flet setupu; create-user
+production zůstává fail-closed přes write policy.
 
-## Schválený model (cíl)
+## Schválený model
 
-- business uživatelé: `public.uzivatel`
+- business users: `public.uzivatel`
 - default operator: `VED`
-- admin: `SUP` + vlastní JLL admin secret / re-auth
-- žádná PIN product terminology
+- admin: `SUP` + JLL re-auth secret (`SupSecretStore`)
+- žádná PIN product terminology v aktivním Flet UI
 - JLL permissions = vlastní policy vrstva
 
-## Aktuální Flet/PySide stav
+## Co setup nyní dělá
 
-| Oblast | Stav | Poznámka |
+| Krok | LAB | PRODUCTION |
 | --- | --- | --- |
-| IdentityStore (lokální JSON) | existuje | setup wizard „první administrátor“ |
-| SUP re-auth | částečně | Flet Admin SUP dialog |
-| VED default session | částečně | BusinessSession |
-| public.uzivatel create | LAB služby | production write policy zatím demotes |
-| PIN terminology | audit potřeba | legacy UI texty |
+| Mode výběr | loopback + `jll_` | hostname/IP |
+| System ID pin | ano | ano |
+| Password | keyring (env LAB fallback) | keyring only, fail-closed |
+| VED | musí existovat v `uzivatel` | stejně; jinak fail-closed |
+| SUP | Argon2 secret | stejně |
+| environment | `lab` | `production` |
 
-Dokud VED/SUP model není end-to-end v production first-run, identity
-contract zůstává **BLOCKED** pro finální signed release.
+## Zbývající mezery
+
+- Production create business user: write policy BLOCKED, dokud není dedicated
+  production PROVEN kontrakt.
+- PySide legacy dialogy stále obsahují PIN texty (reference only).
+- Installation reset SUP reauth: existuje ve Flet Admin flow.
