@@ -8,7 +8,7 @@ from typing import Any
 
 from psycopg.rows import dict_row
 
-from .lab_guard import assert_lab_identity
+from .lab_guard import assert_runtime_identity
 from .orders.errors import ErrorCode, OrderBusinessError
 from .orders.models import OrderServiceSettings
 from .payment_models import (
@@ -52,7 +52,7 @@ class PaymentHistoryService:
             if hasattr(connection, "autocommit") and not connection.autocommit:
                 connection.autocommit = True
             with connection.cursor(row_factory=dict_row) as cursor:
-                self._assert_lab(cursor)
+                self._assert_runtime(cursor)
                 self._require_scoped_diner(cursor, evidcislo, policy.scope())
                 cursor.execute(
                     """
@@ -102,7 +102,7 @@ class PaymentHistoryService:
             if hasattr(connection, "autocommit") and not connection.autocommit:
                 connection.autocommit = True
             with connection.cursor(row_factory=dict_row) as cursor:
-                self._assert_lab(cursor)
+                self._assert_runtime(cursor)
                 cursor.execute(
                     """
                     SELECT
@@ -183,7 +183,7 @@ class PaymentHistoryService:
                 "Strávník pro historii plateb není v scope.",
             )
 
-    def _assert_lab(self, cursor: Any) -> None:
+    def _assert_runtime(self, cursor: Any) -> None:
         cursor.execute(
             """
             SELECT
@@ -195,7 +195,7 @@ class PaymentHistoryService:
         )
         identity = cursor.fetchone()
         assert identity is not None
-        assert_lab_identity(self._settings, identity)
+        assert_runtime_identity(self._settings, identity)
 
     @staticmethod
     def _clamp_limit(limit: int) -> int:

@@ -8,7 +8,7 @@ from typing import Any
 
 from psycopg.rows import dict_row
 
-from .lab_guard import assert_lab_identity
+from .lab_guard import assert_runtime_identity
 from .orders.errors import ErrorCode, OrderBusinessError
 from .orders.models import OrderServiceSettings
 from .payment_models import (
@@ -50,7 +50,7 @@ class PaymentService:
             if hasattr(connection, "autocommit") and not connection.autocommit:
                 connection.autocommit = True
             with connection.cursor(row_factory=dict_row) as cursor:
-                self._assert_lab(cursor)
+                self._assert_runtime(cursor)
                 period = self._load_period(cursor)
         return (
             (period["this_year"], period["this_month"]),
@@ -64,7 +64,7 @@ class PaymentService:
             if hasattr(connection, "autocommit") and not connection.autocommit:
                 connection.autocommit = True
             with connection.cursor(row_factory=dict_row) as cursor:
-                self._assert_lab(cursor)
+                self._assert_runtime(cursor)
                 cursor.execute(
                     """
                     SELECT btrim(typplatby) AS code,
@@ -91,7 +91,7 @@ class PaymentService:
             if hasattr(connection, "autocommit") and not connection.autocommit:
                 connection.autocommit = True
             with connection.cursor(row_factory=dict_row) as cursor:
-                self._assert_lab(cursor)
+                self._assert_runtime(cursor)
                 cursor.execute(
                     """
                     SELECT btrim(ucet) AS code,
@@ -142,7 +142,7 @@ class PaymentService:
         with self._connection_factory() as connection:
             with connection.transaction():
                 with connection.cursor(row_factory=dict_row) as cursor:
-                    self._assert_lab(cursor)
+                    self._assert_runtime(cursor)
                     diner = self._lock_diner(cursor, command.evidcislo, policy.scope())
                     period = self._load_period(cursor)
                     if int(command.period_month) not in {
@@ -698,7 +698,7 @@ class PaymentService:
         row = cursor.fetchone()
         return bool(row and row["result"] is True)
 
-    def _assert_lab(self, cursor: Any) -> None:
+    def _assert_runtime(self, cursor: Any) -> None:
         cursor.execute(
             """
             SELECT
@@ -710,7 +710,7 @@ class PaymentService:
         )
         identity = cursor.fetchone()
         assert identity is not None
-        assert_lab_identity(self._settings, identity)
+        assert_runtime_identity(self._settings, identity)
 
     @staticmethod
     def _positive_money(value: Decimal) -> Decimal:

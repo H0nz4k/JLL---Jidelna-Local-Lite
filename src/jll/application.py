@@ -92,7 +92,7 @@ def present_error(error: BaseException) -> SafeError:
             error.code.value,
             correlation_id,
         )
-    LOGGER.exception("Unhandled LAB request error correlation_id=%s", correlation_id)
+    LOGGER.exception("Unhandled JLL request error correlation_id=%s", correlation_id)
     return SafeError(
         "Požadavek se nepodařilo dokončit. Zkuste to znovu.",
         "UNEXPECTED_ERROR",

@@ -9,7 +9,7 @@ from psycopg.rows import dict_row
 
 from .chip_financial_config import require_zero_chip_deposit
 from .diner_models import ChipCommand, ChipHistoryEntry
-from .lab_guard import assert_lab_identity
+from .lab_guard import assert_runtime_identity
 from .orders.errors import ErrorCode, OrderBusinessError
 from .orders.models import OrderServiceSettings
 from .policy import Permission, SessionPolicy
@@ -46,7 +46,7 @@ class ChipCommandService:
             if hasattr(connection, "autocommit") and not connection.autocommit:
                 connection.autocommit = True
             with connection.cursor(row_factory=dict_row) as cursor:
-                self._assert_lab(cursor)
+                self._assert_runtime(cursor)
                 cursor.execute(
                     """
                     SELECT btrim(s.kategorie) AS kategorie
@@ -160,7 +160,7 @@ class ChipCommandService:
         with self._connection_factory() as connection:
             with connection.transaction():
                 with connection.cursor(row_factory=dict_row) as cursor:
-                    self._assert_lab(cursor)
+                    self._assert_runtime(cursor)
                     if deposit_gate is not None:
                         # Legacy cash chip contract není PROVEN → fail-closed
                         # před jakoukoli finance/chip mutací. Banka není náhrada hotovosti.
@@ -455,7 +455,7 @@ class ChipCommandService:
         row = cursor.fetchone()
         return bool(row and row["result"] is True)
 
-    def _assert_lab(self, cursor: Any) -> None:
+    def _assert_runtime(self, cursor: Any) -> None:
         cursor.execute(
             """
             SELECT
@@ -467,7 +467,7 @@ class ChipCommandService:
         )
         identity = cursor.fetchone()
         assert identity is not None
-        assert_lab_identity(self._settings, identity)
+        assert_runtime_identity(self._settings, identity)
 
     @staticmethod
     def _normalize_chip(raw: str) -> str:

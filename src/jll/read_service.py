@@ -10,7 +10,7 @@ from typing import Any, ContextManager, Iterator
 from psycopg import Connection, sql
 from psycopg.rows import dict_row
 
-from .lab_guard import assert_lab_identity
+from .lab_guard import assert_runtime_identity
 from .orders.errors import ErrorCode, OrderBusinessError
 from .orders.models import Diner, MealType, OrderAction, OrderServiceSettings
 from .orders.preflight import (
@@ -275,7 +275,7 @@ class OrderReadRepository:
         if row is None:
             raise OrderBusinessError(
                 ErrorCode.LAB_GUARD_FAILED,
-                "Lokální LAB databázi nelze ověřit.",
+                "Databázovou identitu nelze ověřit.",
             )
         return row
 
@@ -331,10 +331,10 @@ class OrderReadService:
             if not connection.autocommit:
                 connection.autocommit = True
             repository = OrderReadRepository(connection)
-            assert_lab_identity(self.settings, repository.identity())
+            assert_runtime_identity(self.settings, repository.identity())
             yield connection, repository
 
-    def verify_lab(self) -> LabDiagnostics:
+    def verify_runtime(self) -> LabDiagnostics:
         with self._session() as (_connection, repository):
             identity = repository.identity()
             return LabDiagnostics(
@@ -344,6 +344,9 @@ class OrderReadService:
                 system_identifier=str(identity["system_identifier"]),
                 business_timezone=self.settings.business_timezone,
             )
+
+    # Compatibility alias — production code should prefer verify_runtime.
+    verify_lab = verify_runtime
 
     def server_today(self) -> date:
         with self._session() as (connection, repository):

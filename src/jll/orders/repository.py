@@ -205,7 +205,7 @@ class OrderRepository:
         if row is None:
             raise OrderBusinessError(
                 ErrorCode.LAB_GUARD_FAILED,
-                "Lokální LAB databázi nelze ověřit.",
+                "Databázovou identitu nelze ověřit.",
             )
         return row
 
@@ -256,7 +256,7 @@ class OrderRepository:
         if diner.hromadny:
             raise OrderBusinessError(
                 ErrorCode.HOUSEHOLD_ACCOUNT_UNSUPPORTED,
-                "Hromadný strávník není v LAB objednávkové službě podporován.",
+                "Hromadný strávník není v objednávkové službě podporován.",
             )
         return diner
 

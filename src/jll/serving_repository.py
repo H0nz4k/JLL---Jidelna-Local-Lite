@@ -59,7 +59,7 @@ class ServingRepository:
             )
             row = cursor.fetchone()
         if row is None:
-            raise RuntimeError("Lokální LAB databázi nelze ověřit.")
+            raise RuntimeError("Databázovou identitu nelze ověřit.")
         return row
 
     def nacti_cip(self, chip_uid: str) -> ChipIdentityRow | None:

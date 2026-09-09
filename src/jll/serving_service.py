@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from .lab_guard import assert_lab_identity
+from .lab_guard import assert_runtime_identity
 from .orders.errors import ErrorCode, OrderBusinessError
 from .orders.models import OrderServiceSettings
 from .policy import Permission, SessionPolicy
@@ -34,7 +34,7 @@ class ServingService:
             if hasattr(connection, "autocommit") and not connection.autocommit:
                 connection.autocommit = True
             repository = ServingRepository(connection)
-            assert_lab_identity(self._settings, repository.lab_identity())
+            assert_runtime_identity(self._settings, repository.lab_identity())
             row = repository.nacti_cip(chip_uid)
         if row is None:
             raise OrderBusinessError(
@@ -56,7 +56,7 @@ class ServingService:
             if hasattr(connection, "autocommit") and not connection.autocommit:
                 connection.autocommit = True
             repository = ServingRepository(connection)
-            assert_lab_identity(self._settings, repository.lab_identity())
+            assert_runtime_identity(self._settings, repository.lab_identity())
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -85,7 +85,7 @@ class ServingService:
             if hasattr(connection, "autocommit") and not connection.autocommit:
                 connection.autocommit = True
             repository = ServingRepository(connection)
-            assert_lab_identity(self._settings, repository.lab_identity())
+            assert_runtime_identity(self._settings, repository.lab_identity())
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -129,7 +129,7 @@ class ServingService:
         with self._connection_factory() as connection:
             with connection.transaction():
                 repository = ServingRepository(connection)
-                assert_lab_identity(self._settings, repository.lab_identity())
+                assert_runtime_identity(self._settings, repository.lab_identity())
                 with connection.cursor() as cursor:
                     cursor.execute(
                         """

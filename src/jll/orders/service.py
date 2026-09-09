@@ -15,8 +15,11 @@ from ..lab_guard import assert_runtime_identity
 from .audit import audit_price, transition_note, validate_audit_command
 from .concurrency import (
     IntendedDayState,
+    OrderPostCommitExpectations,
     ProbeStatus,
+    build_exclusive_peers,
     evaluate_post_commit,
+    financial_snapshot_fingerprint,
     versions_match,
 )
 from .errors import ErrorCode, OrderBusinessError
@@ -125,7 +128,7 @@ class OrderService:
             if not connection.autocommit:
                 connection.autocommit = True
             repository = OrderRepository(connection)
-            self._assert_lab_guard(repository)
+            self._assert_runtime_guard(repository)
             return repository.fetch_order_version(
                 evidcislo=evidcislo,
                 year=year,
@@ -143,6 +146,9 @@ class OrderService:
         committed_version,
         exclusive_peers: Mapping[str, frozenset[str]] | None = None,
         finance_consistent: bool | None = None,
+        committed_finance_fingerprint: str | None = None,
+        finance_meal_types: Iterable[str] | None = None,
+        allowed_categories: frozenset[str] | None = None,
     ):
         """Druhé ověření po COMMITu (settle window) — bez zápisu."""
 
@@ -155,21 +161,101 @@ class OrderService:
                 for peer in peers:
                     if peer not in types:
                         types.append(peer)
+        if finance_meal_types:
+            for typ in finance_meal_types:
+                if typ not in types:
+                    types.append(typ)
         after = self.read_version(evidcislo, datum.year, datum.month, types)
+        current_finance: str | None = None
+        if committed_finance_fingerprint is not None:
+            if allowed_categories is None:
+                raise OrderBusinessError(
+                    ErrorCode.POSTCONDITION_FAILED,
+                    "Settle finance oracle vyžaduje allowed_categories.",
+                )
+            meal_scope = tuple(finance_meal_types or types)
+            current_finance = self.read_financial_fingerprint(
+                evidcislo=evidcislo,
+                datum=datum,
+                meal_types=meal_scope,
+                allowed_categories=allowed_categories,
+            )
         return evaluate_post_commit(
             before=committed_version,
             after=after,
             intended=intended_tuple,
             exclusive_peers=exclusive_peers,
             finance_consistent=finance_consistent,
+            committed_finance_fingerprint=committed_finance_fingerprint,
+            current_finance_fingerprint=current_finance,
         )
+
+    def settle_verify_result(self, result: OrderResult):
+        """Settle přes expectations z execute() — stejná cesta jako Flet UI."""
+
+        expectations = result.post_commit_expectations
+        if expectations is None or result.committed_version is None:
+            raise OrderBusinessError(
+                ErrorCode.POSTCONDITION_FAILED,
+                "Settle vyžaduje OrderResult s post_commit_expectations.",
+            )
+        return self.settle_verify(
+            evidcislo=result.evidcislo,
+            datum=result.datum,
+            intended=expectations.intended,
+            committed_version=result.committed_version,
+            exclusive_peers=dict(expectations.exclusive_peers),
+            committed_finance_fingerprint=expectations.financial_fingerprint,
+            finance_meal_types=expectations.finance_meal_types,
+            allowed_categories=expectations.allowed_categories,
+        )
+
+    def read_financial_fingerprint(
+        self,
+        *,
+        evidcislo: int,
+        datum: date,
+        meal_types: Iterable[str],
+        allowed_categories: frozenset[str],
+    ) -> str:
+        """Read-only finance marker pro settle oracle."""
+
+        types = tuple(sorted({item for item in meal_types if item}))
+        with self._connection_factory() as connection:
+            if not connection.autocommit:
+                connection.autocommit = True
+            repository = OrderRepository(connection)
+            self._assert_runtime_guard(repository)
+            command = OrderCommand(
+                action=OrderAction.MENU_ADD,
+                evidcislo=evidcislo,
+                datum=datum,
+                typstravy=types[0] if types else "A",
+                menu=1,
+                actor="settle",
+                client_version="settle",
+                allowed_categories=allowed_categories,
+            )
+            diner = repository.assert_scope(command)
+            rows = repository.read_order_rows(command, types) if types else {}
+            snapshot = self._financial_snapshot(
+                repository, command, diner, rows, types
+            )
+            return financial_snapshot_fingerprint(
+                order_price=snapshot.order_price,
+                order_count=snapshot.order_count,
+                prescribed=snapshot.prescribed,
+                penden_amount=snapshot.penden_amount,
+                penden_count=snapshot.penden_count,
+                penden_by_type=snapshot.penden_by_type,
+            )
 
     def _execute_once(self, command: OrderCommand) -> OrderResult:
         with self._connection_factory() as connection:
             if not connection.autocommit:
                 connection.autocommit = True
             repository = OrderRepository(connection)
-            self._assert_lab_guard(repository)
+            self._assert_runtime_guard(repository)
 
             # Fail-fast stale check před locky (UI snapshot vs aktuální DB).
             if command.expected_version is not None:
@@ -367,13 +453,41 @@ class OrderService:
                     [item.typstravy for item in probe.violated],
                 )
             LOGGER.info(
-                "LAB order committed action=%s evidcislo=%s transitions=%s "
+                "JLL order committed action=%s evidcislo=%s transitions=%s "
                 "tx_ms=%.3f probe=%s",
                 command.action.value,
                 command.evidcislo,
                 len(plan.transitions),
                 transaction_ms,
                 probe.status.value,
+            )
+            exclusive_kod = build_exclusive_peers(target_type.kod, vyloucene_codes)
+            kod_to_name = {
+                meal.kod: name for name, meal in types_by_name.items()
+            }
+            exclusive = {
+                kod_to_name[kod]: frozenset(
+                    kod_to_name[peer]
+                    for peer in peers
+                    if peer in kod_to_name
+                )
+                for kod, peers in exclusive_kod.items()
+                if kod in kod_to_name
+            }
+            finance_fp = financial_snapshot_fingerprint(
+                order_price=after.order_price,
+                order_count=after.order_count,
+                prescribed=after.prescribed,
+                penden_amount=after.penden_amount,
+                penden_count=after.penden_count,
+                penden_by_type=after.penden_by_type,
+            )
+            expectations = OrderPostCommitExpectations(
+                intended=intended,
+                exclusive_peers=exclusive,
+                financial_fingerprint=finance_fp,
+                finance_meal_types=tuple(affected_types),
+                allowed_categories=command.allowed_categories,
             )
             return OrderResult(
                 success=True,
@@ -389,10 +503,14 @@ class OrderService:
                 ),
                 post_commit_probe=probe,
                 committed_version=after_commit,
+                post_commit_expectations=expectations,
             )
 
-    def _assert_lab_guard(self, repository: OrderRepository) -> None:
+    def _assert_runtime_guard(self, repository: OrderRepository) -> None:
         assert_runtime_identity(self.settings, repository.lab_identity())
+
+    # Compatibility alias for older tests/callers.
+    _assert_lab_guard = _assert_runtime_guard
 
     @staticmethod
     def _relation_codes(value: str | None) -> set[str]:

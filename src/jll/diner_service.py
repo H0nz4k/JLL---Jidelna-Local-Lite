@@ -15,7 +15,7 @@ from .diner_models import (
     EditDinerPersonalCommand,
 )
 from .diner_repository import DinerRepository
-from .lab_guard import assert_lab_identity
+from .lab_guard import assert_runtime_identity
 from .orders.errors import ErrorCode, OrderBusinessError
 from .orders.models import OrderServiceSettings
 from .policy import Permission, SessionPolicy
@@ -87,7 +87,7 @@ class DinerService:
         with self._connection_factory() as connection:
             with connection.transaction():
                 repo = DinerRepository(connection)
-                assert_lab_identity(self._settings, repo.lab_identity())
+                assert_runtime_identity(self._settings, repo.lab_identity())
                 evidcislo = repo.allocate_evidcislo()
                 payment = repo.default_payment_method(kategorie)
                 repo.insert_stravnik(
@@ -177,7 +177,7 @@ class DinerService:
         with self._connection_factory() as connection:
             with connection.transaction():
                 repo = DinerRepository(connection)
-                assert_lab_identity(self._settings, repo.lab_identity())
+                assert_runtime_identity(self._settings, repo.lab_identity())
                 row = repo.fetch_for_update(command.evidcislo)
                 if row is None:
                     raise OrderBusinessError(
