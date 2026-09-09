@@ -27,6 +27,7 @@ from ..payment_service import PaymentService
 from ..serving_service import ServingService
 from ..sup_secret import SupSecretStore
 from ..typography_settings import DEFAULT_TYPOGRAPHY, TypographySettings, load_typography, save_typography
+from ..runtime_paths import resolve_runtime_paths
 from ..version import application_version
 from . import theme
 from .components.app_shell import app_shell
@@ -40,10 +41,8 @@ from .screens.setup import SetupScreen
 from .state import AppState
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_CONFIG = PROJECT_ROOT / "config" / "lab.json"
-DEFAULT_IDENTITY = PROJECT_ROOT / "config" / "users.lab.json"
-DEFAULT_LOG = PROJECT_ROOT / "logs" / "jll-flet.log"
 ADMIN_IDLE_SECONDS = 180
+DEFAULT_LOG = PROJECT_ROOT / "logs" / "jll-flet.log"
 
 
 def configure_logging(path: Path = DEFAULT_LOG) -> None:
@@ -536,10 +535,11 @@ class FletAppController:
 
 def run_app(
     *,
-    config_path: Path = DEFAULT_CONFIG,
-    identity_path: Path = DEFAULT_IDENTITY,
+    config_path: Path,
+    identity_path: Path,
+    log_path: Path | None = None,
 ) -> None:
-    configure_logging()
+    configure_logging(log_path or (PROJECT_ROOT / "logs" / "jll-flet.log"))
     state = AppState(config_path=config_path, identity_path=identity_path)
     if config_path.is_file():
         try:
@@ -566,11 +566,35 @@ def run_app(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="JidelnaLocalLite Flet UI")
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
-    parser.add_argument("--identity-store", type=Path, default=DEFAULT_IDENTITY)
+    parser = argparse.ArgumentParser(description="JidelnaLocalLite desktop (Flet)")
+    parser.add_argument("--config", type=Path, default=None)
+    parser.add_argument("--identity-store", type=Path, default=None)
+    parser.add_argument("--log", type=Path, default=None)
+    parser.add_argument(
+        "--lab",
+        action="store_true",
+        help="Vynutit LAB cesty (repo config/), i ve frozen buildu.",
+    )
+    parser.add_argument(
+        "--version",
+        action="store_true",
+        help="Vypíše verzi a skončí.",
+    )
     args = parser.parse_args(argv)
-    run_app(config_path=args.config, identity_path=args.identity_store)
+    if args.version:
+        print(application_version())
+        return 0
+    paths = resolve_runtime_paths(
+        config=args.config,
+        identity=args.identity_store,
+        log=args.log,
+        force_lab=bool(args.lab),
+    )
+    run_app(
+        config_path=paths.config_path,
+        identity_path=paths.identity_path,
+        log_path=paths.log_path,
+    )
     return 0
 
 

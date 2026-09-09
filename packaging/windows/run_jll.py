@@ -1,5 +1,5 @@
-"""PyInstaller entry — absolute import (not package __main__)."""
+"""PyInstaller entry — Flet production desktop."""
 
-from jll.gui.app import main
+from jll.flet_ui.app import main
 
 raise SystemExit(main())

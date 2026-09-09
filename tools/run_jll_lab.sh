@@ -23,16 +23,20 @@ if [[ ! -f "$PYTHON" ]]; then
   exit 2
 fi
 
-if ! "$PYTHON" -c "import PySide6, psycopg, psycopg_pool, argon2, keyring, jll"; then
+if ! "$PYTHON" -c "import flet, psycopg, psycopg_pool, argon2, keyring, jll"; then
   printf 'Chybí závislosti. Spusťte:\n' >&2
   printf '  ./.venv/Scripts/python.exe -m pip install -e ".[test]"\n' >&2
   exit 3
 fi
 
 if [[ -f "$CONFIG" ]]; then
-  "$PYTHON" -m jll.gui.probe "$(native_path "$CONFIG")"
+  if "$PYTHON" -c "import jll.gui.probe" >/dev/null 2>&1; then
+    "$PYTHON" -m jll.gui.probe "$(native_path "$CONFIG")" || true
+  else
+    printf 'LAB config: %s\n' "$CONFIG"
+  fi
 else
-  printf 'LAB config chybí; aplikace otevře fail-closed Setup Wizard.\n'
+  printf 'LAB config chybí; aplikace otevře fail-closed Setup.\n'
 fi
 
 if [[ "${1:-}" == "--probe-only" ]]; then
@@ -40,6 +44,7 @@ if [[ "${1:-}" == "--probe-only" ]]; then
 fi
 
 cd "$ROOT"
-exec "$PYTHON" -m jll \
+printf 'Spouštím Flet desktop UI (production target)...\n'
+exec "$PYTHON" -m jll --lab \
   --config "$(native_path "$CONFIG")" \
   --identity-store "$(native_path "$IDENTITY")"

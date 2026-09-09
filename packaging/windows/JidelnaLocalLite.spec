@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller onedir spec for JidelnaLocalLite (PySide6 GUI).
+"""PyInstaller onedir spec for JidelnaLocalLite (Flet production desktop).
 
-Entry: python -m jll → jll.__main__ → jll.gui.app:main
-Flet is excluded from the production bundle.
+Entry: python -m jll → jll.flet_ui.app:main
+PySide6 GUI remains in source as reference/legacy and is excluded from the bundle.
 reportlab is collected when installed (pdf/production extra).
 """
 
@@ -23,21 +23,23 @@ binaries: list = []
 hiddenimports: list[str] = [
     "jll",
     "jll.__main__",
-    "jll.gui.app",
+    "jll.flet_ui",
+    "jll.flet_ui.app",
     "jll.paths",
     "jll.runtime_paths",
     "keyring.backends",
     "keyring.backends.Windows",
 ]
 
+for package in ("flet", "flet_desktop", "flet_core"):
+    if importlib.util.find_spec(package) is not None:
+        pkg_datas, pkg_binaries, pkg_hidden = collect_all(package)
+        datas += pkg_datas
+        binaries += pkg_binaries
+        hiddenimports += pkg_hidden
+
 # Keep importlib.metadata version() working in the frozen EXE.
 datas += copy_metadata("jidelna-local-lite")
-
-for package in ("PySide6", "shiboken6"):
-    pkg_datas, pkg_binaries, pkg_hidden = collect_all(package)
-    datas += pkg_datas
-    binaries += pkg_binaries
-    hiddenimports += pkg_hidden
 
 if importlib.util.find_spec("reportlab") is not None:
     hiddenimports += collect_submodules("reportlab")
@@ -56,11 +58,9 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        "flet",
-        "flet_core",
-        "flet_desktop",
-        "flet_runtime",
-        "jll.flet_ui",
+        "PySide6",
+        "shiboken6",
+        "jll.gui",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
