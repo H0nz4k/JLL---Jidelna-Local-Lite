@@ -164,12 +164,42 @@ STAGE_ONEDIR="$RELEASE_DIR/$ONEDIR_NAME"
 rm -rf "$STAGE_ONEDIR"
 cp -a "$ONEDIR" "$STAGE_ONEDIR"
 
+SIGNATURE_STATUS="UNSIGNED"
+SIGNTOOL_PATH=""
+verify_signed() {
+  local target="$1"
+  "$SIGNTOOL_PATH" verify //pa //all //v "$(native_path "$target")"
+}
+
+# Sign EXACT onedir EXE payload BEFORE Inno packs it.
+if [[ -n "$SIGN_CERT" ]]; then
+  if SIGNTOOL_PATH="$(find_signtool)"; then
+    printf '==> Signing onedir EXE payload before installer\n'
+    if "$SIGNTOOL_PATH" sign //fd SHA256 //td SHA256 //tr "$TIMESTAMP_URL" //sha1 "$SIGN_CERT" "$(native_path "$STAGE_ONEDIR/${PRODUCT_NAME}.exe")"; then
+      if verify_signed "$STAGE_ONEDIR/${PRODUCT_NAME}.exe"; then
+        # Keep dist onedir in sync with signed staged payload.
+        cp -f "$STAGE_ONEDIR/${PRODUCT_NAME}.exe" "$EXE"
+        SIGNATURE_STATUS="SIGNED_EXE"
+      else
+        printf 'WARNING: EXE signature verify failed — artefacts remain UNSIGNED.\n' >&2
+        SIGNATURE_STATUS="UNSIGNED"
+      fi
+    else
+      printf 'WARNING: signtool failed on EXE — artefacts remain UNSIGNED.\n' >&2
+    fi
+  else
+    printf 'WARNING: SIGN_CERT set but signtool.exe not found — UNSIGNED.\n' >&2
+  fi
+else
+  printf '==> No JLL_SIGN_CERT — artefacts marked UNSIGNED (candidate only).\n'
+fi
+
 INSTALLER=""
 ISCC_PATH=""
 ISCC_VERSION="not-run"
 if [[ "$SKIP_INNO" != "1" ]]; then
   if ISCC_PATH="$(find_iscc)"; then
-    printf '==> Inno Setup via %s\n' "$ISCC_PATH"
+    printf '==> Inno Setup via %s (packs already-signed EXE when available)\n' "$ISCC_PATH"
     "$ISCC_PATH" "$(native_path "$ISS")"
     INSTALLER="$RELEASE_DIR/${PRODUCT_NAME}-${RELEASE_VERSION}-Setup.exe"
     if [[ ! -f "$INSTALLER" ]]; then
@@ -177,6 +207,16 @@ if [[ "$SKIP_INNO" != "1" ]]; then
       INSTALLER=""
     else
       ISCC_VERSION="$("$ISCC_PATH" 2>&1 | head -n 1 || true)"
+      if [[ "$SIGNATURE_STATUS" == "SIGNED_EXE" && -n "$SIGNTOOL_PATH" ]]; then
+        printf '==> Signing installer\n'
+        if "$SIGNTOOL_PATH" sign //fd SHA256 //td SHA256 //tr "$TIMESTAMP_URL" //sha1 "$SIGN_CERT" "$(native_path "$INSTALLER")" \
+          && verify_signed "$INSTALLER"; then
+          SIGNATURE_STATUS="SIGNED"
+        else
+          printf 'WARNING: installer sign/verify failed — keep UNSIGNED claim.\n' >&2
+          SIGNATURE_STATUS="UNSIGNED"
+        fi
+      fi
     fi
   else
     printf 'WARNING: ISCC not found — skipping installer. Install Inno Setup 6 or set PATH.\n' >&2
@@ -186,24 +226,9 @@ else
   ISCC_VERSION="skipped"
 fi
 
-SIGNATURE_STATUS="UNSIGNED"
-SIGNTOOL_PATH=""
-if [[ -n "$SIGN_CERT" ]]; then
-  if SIGNTOOL_PATH="$(find_signtool)"; then
-    printf '==> Attempting Authenticode sign with provided cert thumbprint/path\n'
-    SIGN_TARGETS=("$STAGE_ONEDIR/${PRODUCT_NAME}.exe")
-    [[ -n "$INSTALLER" && -f "$INSTALLER" ]] && SIGN_TARGETS+=("$INSTALLER")
-    if "$SIGNTOOL_PATH" sign //fd SHA256 //td SHA256 //tr "$TIMESTAMP_URL" //sha1 "$SIGN_CERT" "${SIGN_TARGETS[@]}"; then
-      SIGNATURE_STATUS="SIGNED"
-    else
-      printf 'WARNING: signtool failed — artefacts remain UNSIGNED.\n' >&2
-      SIGNATURE_STATUS="UNSIGNED"
-    fi
-  else
-    printf 'WARNING: SIGN_CERT set but signtool.exe not found — UNSIGNED.\n' >&2
-  fi
-else
-  printf '==> No JLL_SIGN_CERT — artefacts marked UNSIGNED (candidate only).\n'
+if [[ "$SIGNATURE_STATUS" == "SIGNED_EXE" ]]; then
+  # EXE signed, installer missing/skipped — not a full signed release claim.
+  SIGNATURE_STATUS="UNSIGNED"
 fi
 
 GIT_SHA="$(git rev-parse HEAD 2>/dev/null || printf 'unknown')"

@@ -15,7 +15,15 @@ from ..identity_store import IdentityStore
 from ..policy import Permission
 from ..read_models import DinerSummary
 from ..sup_secret import SupSecretStore
-from ..write_gates import CHIP_WRITE_GATES, DINER_WRITE_GATES, PAYMENT_WRITE_GATES, WriteGate
+from ..write_gates import (
+    CHIP_WRITE_GATES,
+    DINER_WRITE_GATES,
+    PAYMENT_WRITE_GATES,
+    PRODUCTION_DISABLED_MESSAGE,
+    SERVING_WRITE_GATES,
+    WriteGate,
+    effective_write_gate,
+)
 from ..typography_settings import DEFAULT_TYPOGRAPHY, TypographySettings
 from .routes import Route
 
@@ -56,7 +64,10 @@ def action_state(
             "Chybí hardwarová konfigurace nebo zařízení.",
         )
     if gate is not None and not gate.enabled:
-        return ActionAvailability(False, ActionBlockReason.WRITE_GATE, gate.tooltip)
+        message = gate.tooltip
+        if "Production policy:" in gate.reason:
+            message = PRODUCTION_DISABLED_MESSAGE
+        return ActionAvailability(False, ActionBlockReason.WRITE_GATE, message)
     if business_blocked:
         return ActionAvailability(
             False,
@@ -105,22 +116,36 @@ class AppState:
             return False
         return permission in self.business.current_policy().permissions
 
+    @property
+    def environment(self) -> str:
+        if self.config is None:
+            return "lab"
+        return self.config.environment.strip().lower() or "lab"
+
+    def _gate(self, gates: dict[str, WriteGate], operation: str, *, domain: str) -> WriteGate:
+        return effective_write_gate(
+            gates,
+            operation,
+            environment=self.environment,
+            domain=domain,
+        )
+
     def diner_create_state(self) -> ActionAvailability:
         return action_state(
             has_permission=self.has_perm(Permission.DINERS_CREATE),
-            gate=DINER_WRITE_GATES["create"],
+            gate=self._gate(DINER_WRITE_GATES, "create", domain="diner"),
         )
 
     def diner_edit_state(self) -> ActionAvailability:
         return action_state(
             has_permission=self.has_perm(Permission.DINERS_EDIT),
-            gate=DINER_WRITE_GATES["edit_personal"],
+            gate=self._gate(DINER_WRITE_GATES, "edit_personal", domain="diner"),
         )
 
     def chip_assign_state(self) -> ActionAvailability:
         return action_state(
             has_permission=self.has_perm(Permission.CHIPS_ASSIGN),
-            gate=CHIP_WRITE_GATES["assign"],
+            gate=self._gate(CHIP_WRITE_GATES, "assign", domain="chip"),
         )
 
     def chip_view_state(self) -> ActionAvailability:
@@ -131,25 +156,25 @@ class AppState:
     def chip_return_state(self) -> ActionAvailability:
         return action_state(
             has_permission=self.has_perm(Permission.CHIPS_RETURN),
-            gate=CHIP_WRITE_GATES["return"],
+            gate=self._gate(CHIP_WRITE_GATES, "return", domain="chip"),
         )
 
     def chip_block_state(self) -> ActionAvailability:
         return action_state(
             has_permission=self.has_perm(Permission.CHIPS_BLOCK),
-            gate=CHIP_WRITE_GATES["block"],
+            gate=self._gate(CHIP_WRITE_GATES, "block", domain="chip"),
         )
 
     def chip_lost_state(self) -> ActionAvailability:
         return action_state(
             has_permission=self.has_perm(Permission.CHIPS_LOST),
-            gate=CHIP_WRITE_GATES["lost"],
+            gate=self._gate(CHIP_WRITE_GATES, "lost", domain="chip"),
         )
 
     def chip_unblock_state(self) -> ActionAvailability:
         return action_state(
             has_permission=self.has_perm(Permission.CHIPS_BLOCK),
-            gate=CHIP_WRITE_GATES["unblock"],
+            gate=self._gate(CHIP_WRITE_GATES, "unblock", domain="chip"),
         )
 
     def payments_view_state(self) -> ActionAvailability:
@@ -158,7 +183,13 @@ class AppState:
     def payments_post_state(self) -> ActionAvailability:
         return action_state(
             has_permission=self.has_perm(Permission.PAYMENTS_POST),
-            gate=PAYMENT_WRITE_GATES["manual_payment"],
+            gate=self._gate(PAYMENT_WRITE_GATES, "manual_payment", domain="payment"),
+        )
+
+    def serving_pickup_state(self) -> ActionAvailability:
+        return action_state(
+            has_permission=self.has_perm(Permission.ORDERS_CHANGE),
+            gate=self._gate(SERVING_WRITE_GATES, "record_pickup", domain="serving"),
         )
 
 
