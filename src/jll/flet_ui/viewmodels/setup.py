@@ -53,6 +53,7 @@ class SetupViewModel:
     STEPS_PRODUCTION = (
         "Databáze",
         "Provozovna a stanice",
+        "Povolené kategorie",
         "SUP heslo",
         "Souhrn",
     )
@@ -88,7 +89,7 @@ class SetupViewModel:
     def STEPS(self) -> tuple[str, ...]:
         if self.allow_environment_choice:
             return self.STEPS_CHOICE
-        # Fixed first-run: kategorie se vyberou automaticky po probe.
+        # Frozen production: bez kroku režimu, výběr kategorií zůstává povinný.
         return self.STEPS_PRODUCTION
 
     @property
@@ -116,13 +117,6 @@ class SetupViewModel:
         self.draft.probe = probe
         if probe.subject_name:
             self.draft.site_name = probe.subject_name
-        # Production wizard bez kroku kategorií — vezmi všechny z probe.
-        if not self.allow_environment_choice:
-            options = probe.category_options
-            if options:
-                self.draft.categories = [item.code for item in options]
-            else:
-                self.draft.categories = list(probe.categories)
         self.draft.error = ""
         return probe
 

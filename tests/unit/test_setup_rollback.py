@@ -60,7 +60,7 @@ def _ready_vm(tmp_path: Path, *, production: bool = False) -> SetupViewModel:
     return vm
 
 
-def test_frozen_production_setup_skips_mode_step(tmp_path: Path) -> None:
+def test_frozen_production_setup_skips_mode_keeps_categories(tmp_path: Path) -> None:
     state = AppState(
         config_path=tmp_path / "jll.json",
         identity_path=tmp_path / "users.json",
@@ -75,16 +75,40 @@ def test_frozen_production_setup_skips_mode_step(tmp_path: Path) -> None:
     assert vm.STEPS == (
         "Databáze",
         "Provozovna a stanice",
+        "Povolené kategorie",
         "SUP heslo",
         "Souhrn",
     )
     assert "Režim" not in vm.STEPS
-    assert "Povolené kategorie" not in vm.STEPS
+    assert "Povolené kategorie" in vm.STEPS
     assert vm.is_production
     assert vm.draft.host == "127.0.0.1"
     assert vm.draft.database == "jidelna"
     assert vm.draft.user == "postgres"
     assert vm.draft.port == "5432"
+
+
+def test_production_probe_does_not_auto_select_categories(tmp_path: Path) -> None:
+    state = AppState(
+        config_path=tmp_path / "jll.json",
+        identity_path=tmp_path / "users.json",
+        environment_hint="production",
+        allow_environment_choice=False,
+    )
+    vm = SetupViewModel(
+        state,
+        environment_hint="production",
+        allow_environment_choice=False,
+    )
+    probe = _probe(production=True)
+    with patch(
+        "jll.flet_ui.viewmodels.setup.probe_production_database",
+        return_value=probe,
+    ):
+        vm.draft.password = "secret"
+        result = vm.test_database()
+    assert result is probe
+    assert vm.draft.categories == []
 
 
 def test_keyring_set_failure_leaves_no_config(tmp_path: Path) -> None:

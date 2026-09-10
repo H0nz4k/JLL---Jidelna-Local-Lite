@@ -137,6 +137,8 @@ class SetupScreen:
             elif step == 1:
                 self._step_station()
             elif step == 2:
+                self._step_categories()
+            elif step == 3:
                 self._step_sup()
             else:
                 self._step_summary()
@@ -512,7 +514,9 @@ class SetupScreen:
             else:
                 if step == 1 and self.vm.draft.station is None:
                     raise ValueError("Vyberte stanici.")
-                if step == 2:
+                if step == 2 and not self.vm.draft.categories:
+                    raise ValueError("Vyberte alespoň jednu kategorii.")
+                if step == 3:
                     self.vm.validate_sup()
         except Exception as exc:
             message_dialog(self.page, title="Setup", body=str(exc))

@@ -6,6 +6,17 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.6.1] – 2026-09-10
+
+### Fixed
+
+- Production first-run wizard opět obsahuje povinný krok **Povolené kategorie**
+  (už není auto-výběr všech kategorií z DB).
+
+### Changed
+
+- Canonical verze `0.6.1`.
+
 ## [0.6.0] – 2026-09-09
 
 První Windows production candidate (**Flet** desktop):
