@@ -8,7 +8,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 PRODUCT_NAME="JidelnaLocalLite"
-RELEASE_VERSION="${JLL_RELEASE_VERSION:-0.6.1}"
+RELEASE_VERSION="${JLL_RELEASE_VERSION:-0.6.2}"
 SPEC="$ROOT/packaging/windows/JidelnaLocalLite.spec"
 ISS="$ROOT/packaging/windows/JidelnaLocalLite.iss"
 RELEASE_DIR="$ROOT/dist/release/${RELEASE_VERSION}"

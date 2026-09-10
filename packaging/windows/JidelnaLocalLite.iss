@@ -1,17 +1,17 @@
 ; Inno Setup script for JidelnaLocalLite (Windows production candidate).
-; Display product name: JLL. Installer file: JidelnaLocalLite-0.6.1-Setup.exe
+; Display product name: JLL. Installer file: JidelnaLocalLite-0.6.2-Setup.exe
 ; Authenticode is NOT REQUIRED — release is UNSIGNED BY DESIGN.
 ; Build after PyInstaller onedir: dist\JidelnaLocalLite\
 
 #define MyAppName "JidelnaLocalLite"
 #define MyProductName "JLL"
 #define MyCompany "Altisima"
-#define MyAppVersion "0.6.1"
-#define MyFileVersion "0.6.1.0"
+#define MyAppVersion "0.6.2"
+#define MyFileVersion "0.6.2.0"
 #define MyAppExeName "JidelnaLocalLite.exe"
 ; Paths relative to this .iss file (packaging/windows/).
 #define MyOnedirSource "..\..\dist\JidelnaLocalLite"
-#define MyOutputDir "..\..\dist\release\0.6.1"
+#define MyOutputDir "..\..\dist\release\0.6.2"
 
 [Setup]
 AppId={{A6F2C8E1-4B7D-4F9A-9C31-8E5D2A7B6C10}
@@ -31,7 +31,7 @@ WizardStyle=modern
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-UninstallDisplayName={#MyProductName}
+UninstallDisplayName={#MyProductName} {#MyAppVersion}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 SetupIconFile=jll.ico
 VersionInfoVersion={#MyFileVersion}

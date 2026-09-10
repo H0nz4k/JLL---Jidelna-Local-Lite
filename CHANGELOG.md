@@ -6,6 +6,19 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 
 ## [Unreleased]
 
+## [0.6.2] – 2026-09-10
+
+### Fixed
+
+- Setup wizard: dlouhý seznam kategorií je scrollovatelný (`ListView`);
+  navigace Zpět/Další zůstává viditelná mimo scroll.
+- Windows „Nainstalované aplikace“: `UninstallDisplayName` zobrazuje
+  `JLL <verze>` (ne jen `JLL`).
+
+### Changed
+
+- Canonical verze `0.6.2`.
+
 ## [0.6.1] – 2026-09-10
 
 ### Fixed

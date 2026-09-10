@@ -10,8 +10,9 @@ from ..state import AppState
 from ..viewmodels.setup import SetupViewModel
 from ...setup_probe import CategoryOption
 
-SETUP_WINDOW_WIDTH = 720
-SETUP_WINDOW_HEIGHT = 640
+SETUP_WINDOW_WIDTH = 760
+SETUP_WINDOW_HEIGHT = 720
+SETUP_CONTENT_WIDTH = 520
 
 
 def _field(**kwargs) -> ft.TextField:
@@ -36,18 +37,24 @@ class SetupScreen:
         self._next_btn: ft.FilledButton | None = None
         self._status_text: ft.Text | None = None
         self._steps_row = ft.Row(spacing=theme.SPACING["xs"], wrap=True)
+        self._step_title = theme.text("", theme.TextRole.ACTION)
+        # expand=True + scroll: body má omezenou výšku (zbývá pod hlavičkou),
+        # jinak Column naroste přes okno a scroll vůbec nevznikne.
         self.body = ft.Column(
-            expand=False,
+            expand=True,
             scroll=ft.ScrollMode.AUTO,
-            spacing=theme.SPACING["md"],
-            width=460,
+            spacing=theme.SPACING["sm"],
+            width=SETUP_CONTENT_WIDTH,
         )
+        self._nav = ft.Row(spacing=theme.SPACING["sm"], width=SETUP_CONTENT_WIDTH)
         self.root = ft.Container(
             content=ft.Column(
                 [
                     theme.text("První nastavení", theme.TextRole.PRIMARY),
                     self._steps_row,
+                    self._step_title,
                     self.body,
+                    self._nav,
                 ],
                 expand=True,
                 spacing=theme.SPACING["md"],
@@ -70,8 +77,8 @@ class SetupScreen:
             self.page.window.maximized = False
             self.page.window.width = SETUP_WINDOW_WIDTH
             self.page.window.height = SETUP_WINDOW_HEIGHT
-            self.page.window.min_width = 640
-            self.page.window.min_height = 520
+            self.page.window.min_width = 680
+            self.page.window.min_height = 560
         except Exception:
             pass
 
@@ -111,12 +118,12 @@ class SetupScreen:
 
     def _render(self) -> None:
         self.body.controls.clear()
+        self.body.scroll = ft.ScrollMode.AUTO
         self._next_btn = None
         self._status_text = None
         self._render_steps_progress()
         step = self.vm.draft.step
-        title = self.vm.STEPS[step]
-        self.body.controls.append(theme.text(title, theme.TextRole.ACTION))
+        self._step_title.value = self.vm.STEPS[step]
 
         if self.vm.allow_environment_choice:
             if step == 0:
@@ -180,7 +187,8 @@ class SetupScreen:
                     on_click=lambda _e: self._finish(),
                 )
             )
-        self.body.controls.append(ft.Row(nav, spacing=theme.SPACING["sm"]))
+        # Navigace mimo scroll — Zpět/Další vždy viditelné.
+        self._nav.controls = nav
         self.page.update()
 
     def _is_db_step(self, step: int) -> bool:
@@ -427,7 +435,6 @@ class SetupScreen:
             value=bool(options) and len(d.categories) == len(options),
             on_change=_toggle_all,
         )
-        self.body.controls.append(all_box)
         for item in options:
             cb = ft.Checkbox(
                 label=item.label,
@@ -436,7 +443,28 @@ class SetupScreen:
                 on_change=lambda e, c=item.code: _toggle_one(c, bool(e.control.value)),
             )
             checkboxes.append(cb)
-            self.body.controls.append(cb)
+
+        # ListView má vlastní viewport + scrollbar; body.scroll vypnout,
+        # ať nevznikne vnitřní/vnější konflikt při desítkách kategorií.
+        self.body.scroll = None
+        category_list = ft.ListView(
+            controls=checkboxes,
+            expand=True,
+            spacing=theme.SPACING["xs"],
+            padding=ft.padding.only(right=8),
+            auto_scroll=False,
+        )
+        self.body.controls.extend(
+            [
+                theme.text(
+                    f"Vyberte kategorie povolené na této stanici ({len(options)}).",
+                    theme.TextRole.BODY,
+                    color=theme.COLORS["text_secondary"],
+                ),
+                all_box,
+                category_list,
+            ]
+        )
         self._persist = lambda: None
 
     def _toggle_cat(self, cat: str, selected: bool) -> None:
