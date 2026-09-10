@@ -87,6 +87,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     version=str(Path(SPECPATH).resolve() / "version_info.txt"),
+    icon=str(Path(SPECPATH).resolve() / "jll.ico"),
 )
 
 coll = COLLECT(

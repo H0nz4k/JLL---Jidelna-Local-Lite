@@ -10,10 +10,14 @@ from ..state import AppState
 from ..viewmodels.setup import SetupViewModel
 from ...setup_probe import CategoryOption
 
+SETUP_WINDOW_WIDTH = 720
+SETUP_WINDOW_HEIGHT = 640
+
 
 def _field(**kwargs) -> ft.TextField:
     kwargs.setdefault("text_size", theme.field_text_size())
     kwargs.setdefault("label_style", theme.field_label_style())
+    kwargs.setdefault("width", 420)
     return ft.TextField(**kwargs)
 
 
@@ -27,35 +31,93 @@ class SetupScreen:
             environment_hint=state.environment_hint,
             allow_environment_choice=state.allow_environment_choice,
         )
-        self.body = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=theme.SPACING["md"])
+        self._db_ok = self.vm.draft.probe is not None
+        self._status_ok_text = ""
+        self._next_btn: ft.FilledButton | None = None
+        self._status_text: ft.Text | None = None
+        self._steps_row = ft.Row(spacing=theme.SPACING["xs"], wrap=True)
+        self.body = ft.Column(
+            expand=False,
+            scroll=ft.ScrollMode.AUTO,
+            spacing=theme.SPACING["md"],
+            width=460,
+        )
         self.root = ft.Container(
             content=ft.Column(
                 [
                     theme.text("První nastavení", theme.TextRole.PRIMARY),
-                    theme.text(
-                        " · ".join(self.vm.STEPS),
-                        theme.TextRole.META,
-                        color=theme.COLORS["text_secondary"],
-                    ),
+                    self._steps_row,
                     self.body,
                 ],
                 expand=True,
-                spacing=theme.SPACING["lg"],
+                spacing=theme.SPACING["md"],
+                horizontal_alignment=ft.CrossAxisAlignment.START,
             ),
             expand=True,
-            padding=theme.SPACING["xl"],
+            padding=theme.SPACING["lg"],
             bgcolor=theme.COLORS["background"],
+            alignment=ft.alignment.top_left,
         )
+        self._apply_compact_window()
+        self.page.on_keyboard_event = self._on_keyboard
         self._render()
 
     def control(self) -> ft.Control:
         return self.root
 
+    def _apply_compact_window(self) -> None:
+        try:
+            self.page.window.maximized = False
+            self.page.window.width = SETUP_WINDOW_WIDTH
+            self.page.window.height = SETUP_WINDOW_HEIGHT
+            self.page.window.min_width = 640
+            self.page.window.min_height = 520
+        except Exception:
+            pass
+
+    def _on_keyboard(self, e: ft.KeyboardEvent) -> None:
+        if (e.key or "").lower() not in {"enter", "numpad enter"}:
+            return
+        if e.shift or e.ctrl or e.alt or e.meta:
+            return
+        self._primary_action()
+
+    def _primary_action(self) -> None:
+        step = self.vm.draft.step
+        if step < len(self.vm.STEPS) - 1:
+            if self._next_btn is not None and self._next_btn.disabled:
+                return
+            self._next()
+        else:
+            self._finish()
+
+    def _render_steps_progress(self) -> None:
+        self._steps_row.controls.clear()
+        current = self.vm.draft.step
+        for index, label in enumerate(self.vm.STEPS):
+            if index > 0:
+                self._steps_row.controls.append(
+                    theme.text(" · ", theme.TextRole.META, color=theme.COLORS["text_secondary"])
+                )
+            if index < current:
+                color = theme.COLORS["success"]
+            elif index == current:
+                color = theme.COLORS["text_primary"]
+            else:
+                color = theme.COLORS["text_secondary"]
+            self._steps_row.controls.append(
+                theme.text(label, theme.TextRole.META, color=color)
+            )
+
     def _render(self) -> None:
         self.body.controls.clear()
+        self._next_btn = None
+        self._status_text = None
+        self._render_steps_progress()
         step = self.vm.draft.step
         title = self.vm.STEPS[step]
         self.body.controls.append(theme.text(title, theme.TextRole.ACTION))
+
         if self.vm.allow_environment_choice:
             if step == 0:
                 self._step_mode()
@@ -70,40 +132,57 @@ class SetupScreen:
             else:
                 self._step_summary()
         else:
-            # Production frozen: bez volby LAB/PRODUCTION.
             if step == 0:
                 self._step_db()
             elif step == 1:
                 self._step_station()
             elif step == 2:
-                self._step_categories()
-            elif step == 3:
                 self._step_sup()
             else:
                 self._step_summary()
-        nav = []
+
+        nav: list[ft.Control] = []
         if step > 0:
             nav.append(
                 ft.OutlinedButton(
-                    "Zpět", style=theme.button_style(), on_click=lambda _e: self._back()
+                    "Zpět",
+                    style=theme.button_style(),
+                    on_click=lambda _e: self._back(),
                 )
             )
         if step < len(self.vm.STEPS) - 1:
-            nav.append(
-                ft.FilledButton(
-                    "Další", style=theme.button_style(), on_click=lambda _e: self._next()
-                )
+            can_next = True
+            btn_style = theme.button_style()
+            if self._is_db_step(step):
+                can_next = self._db_ok and self.vm.draft.probe is not None
+                if can_next:
+                    btn_style = ft.ButtonStyle(
+                        bgcolor=theme.COLORS["success"],
+                        color="#FFFFFF",
+                    )
+            self._next_btn = ft.FilledButton(
+                "Další",
+                style=btn_style,
+                disabled=not can_next,
+                on_click=lambda _e: self._next(),
             )
+            nav.append(self._next_btn)
         else:
             nav.append(
                 ft.FilledButton(
                     "Dokončit",
-                    style=theme.button_style(),
+                    style=ft.ButtonStyle(
+                        bgcolor=theme.COLORS["success"],
+                        color="#FFFFFF",
+                    ),
                     on_click=lambda _e: self._finish(),
                 )
             )
         self.body.controls.append(ft.Row(nav, spacing=theme.SPACING["sm"]))
         self.page.update()
+
+    def _is_db_step(self, step: int) -> bool:
+        return step == (0 if not self.vm.allow_environment_choice else 1)
 
     def _step_mode(self) -> None:
         d = self.vm.draft
@@ -111,21 +190,29 @@ class SetupScreen:
         def _set_lab(_e=None) -> None:
             d.environment = "lab"
             d.host = "127.0.0.1"
+            d.port = "5433"
             if not d.database.startswith("jll_"):
                 d.database = "jll_demo_lab"
+            d.user = "postgres"
+            d.probe = None
+            self._db_ok = False
             self._render()
 
         def _set_prod(_e=None) -> None:
             d.environment = "production"
-            if d.host in {"127.0.0.1", "localhost", "::1"}:
-                d.host = ""
+            d.host = "127.0.0.1"
+            d.port = "5432"
+            d.database = "jidelna"
+            d.user = "postgres"
+            d.probe = None
+            self._db_ok = False
             self._render()
 
         self.body.controls.extend(
             [
                 theme.text(
                     "Zvolte režim instalace. Production cílí na zákaznickou DB "
-                    "se System ID pinningem (bez loopback / jll_ požadavku).",
+                    "se System ID pinningem.",
                     theme.TextRole.BODY,
                     color=theme.COLORS["text_secondary"],
                 ),
@@ -151,6 +238,7 @@ class SetupScreen:
 
     def _step_db(self) -> None:
         d = self.vm.draft
+        d.user = "postgres"
         if not self.vm.allow_environment_choice and self.vm.is_production:
             self.body.controls.append(
                 theme.text(
@@ -167,50 +255,100 @@ class SetupScreen:
                     color=theme.COLORS["text_secondary"],
                 )
             )
-        host = _field(label="Host", value=d.host)
-        port = _field(label="Port", value=d.port)
-        database = _field(label="Databáze", value=d.database)
-        user = _field(label="DB uživatel", value=d.user)
+
+        host = _field(label="Host", value=d.host or "127.0.0.1")
+        port = _field(label="Port", value=d.port or ("5432" if self.vm.is_production else "5433"))
+        database = _field(
+            label="Databáze",
+            value=d.database or ("jidelna" if self.vm.is_production else "jll_demo_lab"),
+        )
         password = _field(
-            label="DB heslo", value=d.password, password=True, can_reveal_password=True
+            label="DB heslo",
+            value=d.password,
+            password=True,
+            can_reveal_password=True,
+        )
+
+        def _invalidate(_e=None) -> None:
+            if d.probe is not None or self._db_ok:
+                d.probe = None
+                self._db_ok = False
+                self._status_ok_text = ""
+                if self._status_text is not None:
+                    self._status_text.value = "Spojení zatím nebylo ověřeno."
+                    self._status_text.color = theme.COLORS["text_secondary"]
+                if self._next_btn is not None:
+                    self._next_btn.disabled = True
+                    self._next_btn.style = theme.button_style()
+                self.page.update()
+
+        for control in (host, port, database, password):
+            control.on_change = _invalidate
+
+        initial_status = (
+            self._status_ok_text
+            if self._db_ok and d.probe is not None
+            else "Spojení zatím nebylo ověřeno."
         )
         status = theme.text(
-            "Spojení zatím nebylo ověřeno."
-            if d.probe is None
-            else f"OK · {len(d.probe.stations)} stanic",
+            initial_status,
             theme.TextRole.BODY,
+            color=(
+                theme.COLORS["success"]
+                if self._db_ok and d.probe is not None
+                else theme.COLORS["text_secondary"]
+            ),
         )
+        self._status_text = status
 
         def _save_fields() -> None:
-            d.host, d.port, d.database, d.user, d.password = (
-                host.value or "",
-                port.value or "",
-                database.value or "",
-                user.value or "",
-                password.value or "",
+            d.host = (host.value or "").strip() or "127.0.0.1"
+            d.port = (port.value or "").strip() or ("5432" if self.vm.is_production else "5433")
+            d.database = (database.value or "").strip() or (
+                "jidelna" if self.vm.is_production else "jll_demo_lab"
             )
+            d.user = "postgres"
+            d.password = password.value or ""
 
-        def _test(_e):
+        def _test(_e=None) -> None:
             _save_fields()
             try:
                 probe = self.vm.test_database()
-                status.value = (
+                self._db_ok = True
+                self._status_ok_text = (
                     f"OK · provozovna: {probe.subject_name or 'ručně'} · "
                     f"{len(probe.stations)} stanic · {len(probe.categories)} kategorií"
                 )
+                status.value = self._status_ok_text
+                status.color = theme.COLORS["success"]
+                if self._next_btn is not None:
+                    self._next_btn.disabled = False
+                    self._next_btn.style = ft.ButtonStyle(
+                        bgcolor=theme.COLORS["success"],
+                        color="#FFFFFF",
+                    )
             except Exception as exc:
+                self._db_ok = False
+                d.probe = None
+                self._status_ok_text = ""
                 status.value = str(exc)
+                status.color = theme.COLORS["danger"]
+                if self._next_btn is not None:
+                    self._next_btn.disabled = True
+                    self._next_btn.style = theme.button_style()
             self.page.update()
 
+        password.on_submit = lambda _e: _test()
         self.body.controls.extend(
             [
                 host,
                 port,
                 database,
-                user,
                 password,
                 ft.OutlinedButton(
-                    "Otestovat spojení", style=theme.button_style(), on_click=_test
+                    "Otestovat spojení",
+                    style=theme.button_style(),
+                    on_click=_test,
                 ),
                 status,
             ]
@@ -220,7 +358,9 @@ class SetupScreen:
     def _step_station(self) -> None:
         d = self.vm.draft
         if d.probe is None:
-            self.body.controls.append(theme.text("Nejprve ověřte databázi.", theme.TextRole.BODY))
+            self.body.controls.append(
+                theme.text("Nejprve ověřte databázi.", theme.TextRole.BODY)
+            )
             return
         site = _field(
             label="Provozovna",
@@ -236,6 +376,7 @@ class SetupScreen:
             label="Stanice",
             options=options,
             value=d.station.name if d.station else None,
+            width=420,
             text_size=theme.field_text_size(),
             label_style=theme.field_label_style(),
             on_change=lambda e: self._pick_station(e.control.value),
@@ -254,7 +395,9 @@ class SetupScreen:
     def _step_categories(self) -> None:
         d = self.vm.draft
         if d.probe is None:
-            self.body.controls.append(theme.text("Nejprve ověřte databázi.", theme.TextRole.BODY))
+            self.body.controls.append(
+                theme.text("Nejprve ověřte databázi.", theme.TextRole.BODY)
+            )
             return
         options = d.probe.category_options or tuple(
             CategoryOption(code=c) for c in d.probe.categories
@@ -320,6 +463,7 @@ class SetupScreen:
             d.sup_password = p1.value or ""
             d.sup_password_confirm = p2.value or ""
 
+        p2.on_submit = lambda _e: self._primary_action()
         self.body.controls.extend([p1, p2])
         self._persist = _save
 
@@ -329,6 +473,7 @@ class SetupScreen:
             theme.text(
                 f"Režim: {d.environment}\n"
                 f"Databáze: {d.host}:{d.port}/{d.database}\n"
+                f"DB uživatel: postgres\n"
                 f"Provozovna: {d.site_name}\n"
                 f"Stanice: {d.station.name if d.station else '—'}\n"
                 f"Kategorie: {', '.join(d.categories)}\n"
@@ -349,13 +494,26 @@ class SetupScreen:
         if hasattr(self, "_persist"):
             self._persist()
         step = self.vm.draft.step
-        db_step = 0 if not self.vm.allow_environment_choice else 1
-        sup_step = 3 if not self.vm.allow_environment_choice else 4
+        if self._is_db_step(step) and (not self._db_ok or self.vm.draft.probe is None):
+            message_dialog(
+                self.page,
+                title="Setup",
+                body="Nejdříve úspěšně otestujte spojení s databází.",
+            )
+            return
         try:
-            if step == db_step and self.vm.draft.probe is None:
-                self.vm.test_database()
-            if step == sup_step:
-                self.vm.validate_sup()
+            if self.vm.allow_environment_choice:
+                if step == 4:
+                    self.vm.validate_sup()
+                if step == 2 and self.vm.draft.station is None:
+                    raise ValueError("Vyberte stanici.")
+                if step == 3 and not self.vm.draft.categories:
+                    raise ValueError("Vyberte alespoň jednu kategorii.")
+            else:
+                if step == 1 and self.vm.draft.station is None:
+                    raise ValueError("Vyberte stanici.")
+                if step == 2:
+                    self.vm.validate_sup()
         except Exception as exc:
             message_dialog(self.page, title="Setup", body=str(exc))
             return

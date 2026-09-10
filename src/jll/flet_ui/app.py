@@ -223,6 +223,16 @@ class FletAppController:
 
     def _show_setup(self) -> None:
         self.state.needs_setup = True
+        from .screens.setup import SETUP_WINDOW_HEIGHT, SETUP_WINDOW_WIDTH
+
+        try:
+            self.page.window.maximized = False
+            self.page.window.width = SETUP_WINDOW_WIDTH
+            self.page.window.height = SETUP_WINDOW_HEIGHT
+            self.page.window.min_width = 640
+            self.page.window.min_height = 520
+        except Exception:
+            pass
         screen = SetupScreen(self.page, self.state, on_finished=self._after_setup)
         self.page.controls.clear()
         self.page.add(screen.control())
@@ -332,6 +342,15 @@ class FletAppController:
 
     def _after_setup(self) -> None:
         self.state.needs_setup = False
+        try:
+            self.page.on_keyboard_event = None
+            self.page.window.width = theme.WINDOW_WIDTH
+            self.page.window.height = theme.WINDOW_HEIGHT
+            self.page.window.min_width = 1100
+            self.page.window.min_height = 700
+            self.page.window.maximized = True
+        except Exception:
+            pass
         self._wire_runtime()
         self.state.business.bootstrap_ved()
         self._show_main()

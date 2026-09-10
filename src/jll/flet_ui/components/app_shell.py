@@ -69,19 +69,23 @@ def app_shell(
         height=_HEADER_ROW_HEIGHT,
         alignment=ft.alignment.center,
     )
+    header_actions: list[ft.Control] = [
+        user_chip(state, _open_users),
+        ft.IconButton(
+            icon=ft.Icons.MONITOR_HEART_OUTLINED,
+            tooltip="Diagnostika",
+            icon_size=20,
+            style=ft.ButtonStyle(padding=4),
+            on_click=lambda _e: on_diagnostics(),
+        ),
+    ]
+    # LAB badge jen v lab prostředí (source run / lab config), ne v production.
+    if state.environment == "lab":
+        header_actions.append(lab_badge())
+
     right = ft.Container(
         content=ft.Row(
-            [
-                user_chip(state, _open_users),
-                ft.IconButton(
-                    icon=ft.Icons.MONITOR_HEART_OUTLINED,
-                    tooltip="Diagnostika",
-                    icon_size=20,
-                    style=ft.ButtonStyle(padding=4),
-                    on_click=lambda _e: on_diagnostics(),
-                ),
-                lab_badge(),
-            ],
+            header_actions,
             spacing=theme.SPACING["sm"],
             tight=True,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,

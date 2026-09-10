@@ -50,10 +50,9 @@ class SetupViewModel:
         "SUP heslo",
         "Souhrn",
     )
-    STEPS_FIXED = (
+    STEPS_PRODUCTION = (
         "Databáze",
         "Provozovna a stanice",
-        "Povolené kategorie",
         "SUP heslo",
         "Souhrn",
     )
@@ -75,16 +74,22 @@ class SetupViewModel:
         if not allow_environment_choice:
             self.draft.environment = hint
             if hint == "production":
-                self.draft.host = ""
+                self.draft.host = "127.0.0.1"
                 self.draft.port = "5432"
-                self.draft.database = ""
-                self.draft.user = ""
+                self.draft.database = "jidelna"
+                self.draft.user = "postgres"
+            else:
+                self.draft.host = "127.0.0.1"
+                self.draft.port = "5433"
+                self.draft.database = "jll_demo_lab"
+                self.draft.user = "postgres"
 
     @property
     def STEPS(self) -> tuple[str, ...]:
         if self.allow_environment_choice:
             return self.STEPS_CHOICE
-        return self.STEPS_FIXED
+        # Fixed first-run: kategorie se vyberou automaticky po probe.
+        return self.STEPS_PRODUCTION
 
     @property
     def is_production(self) -> bool:
@@ -111,6 +116,13 @@ class SetupViewModel:
         self.draft.probe = probe
         if probe.subject_name:
             self.draft.site_name = probe.subject_name
+        # Production wizard bez kroku kategorií — vezmi všechny z probe.
+        if not self.allow_environment_choice:
+            options = probe.category_options
+            if options:
+                self.draft.categories = [item.code for item in options]
+            else:
+                self.draft.categories = list(probe.categories)
         self.draft.error = ""
         return probe
 

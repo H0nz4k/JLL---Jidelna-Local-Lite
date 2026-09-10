@@ -72,9 +72,19 @@ def test_frozen_production_setup_skips_mode_step(tmp_path: Path) -> None:
         environment_hint="production",
         allow_environment_choice=False,
     )
-    assert vm.STEPS[0] == "Databáze"
+    assert vm.STEPS == (
+        "Databáze",
+        "Provozovna a stanice",
+        "SUP heslo",
+        "Souhrn",
+    )
     assert "Režim" not in vm.STEPS
+    assert "Povolené kategorie" not in vm.STEPS
     assert vm.is_production
+    assert vm.draft.host == "127.0.0.1"
+    assert vm.draft.database == "jidelna"
+    assert vm.draft.user == "postgres"
+    assert vm.draft.port == "5432"
 
 
 def test_keyring_set_failure_leaves_no_config(tmp_path: Path) -> None:
