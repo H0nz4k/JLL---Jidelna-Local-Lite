@@ -2,11 +2,14 @@
 
 Formát vychází z [Keep a Changelog](https://keepachangelog.com/cs/1.1.0/)
 a projekt používá [Semantic Versioning](https://semver.org/lang/cs/).
-Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
+Dokud je JLL v řadě `0.x.y`, znamená to evoluci produktu; **`0.6.2` je první
+produkční Windows release** (Flet desktop, UNSIGNED BY DESIGN).
 
 ## [Unreleased]
 
 ## [0.6.2] – 2026-09-10
+
+**První produkční Windows release.**
 
 ### Fixed
 
@@ -18,6 +21,7 @@ Dokud je JLL LAB/pre-production, zůstává řada `0.x.y`.
 ### Changed
 
 - Canonical verze `0.6.2`.
+- README: jednoduchý návod instalace; backlog v `docs/TODO.md`.
 
 ## [0.6.1] – 2026-09-10
 

@@ -1,7 +1,9 @@
 # Dokumentace JLL
 
-Index technické dokumentace. Kořenový přehled projektu je v
+Index technické dokumentace. Kořenový přehled a instalace:  
 [../README.md](../README.md).
+
+**Zbývající práce po 0.6.2:** [TODO.md](TODO.md)
 
 ## Pro kolegy (onboarding)
 
