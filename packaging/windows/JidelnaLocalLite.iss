@@ -5,7 +5,7 @@
 
 #define MyAppName "JidelnaLocalLite"
 #define MyProductName "JLL"
-#define MyCompany "HanzG"
+#define MyCompany "Altisima"
 #define MyAppVersion "0.6.0"
 #define MyFileVersion "0.6.0.0"
 #define MyAppExeName "JidelnaLocalLite.exe"
@@ -19,7 +19,7 @@ AppName={#MyProductName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyProductName} {#MyAppVersion}
 AppPublisher={#MyCompany}
-AppCopyright=Copyright © 2026 HanzG
+AppCopyright=Copyright © 2026 Altisima
 DefaultDirName=C:\Gastro\{#MyAppName}
 DefaultGroupName={#MyProductName}
 DisableProgramGroupPage=yes
@@ -39,7 +39,7 @@ VersionInfoCompany={#MyCompany}
 VersionInfoDescription=JLL – Jídelna Lokal Lite Setup
 VersionInfoProductName={#MyProductName}
 VersionInfoProductVersion={#MyAppVersion}
-VersionInfoCopyright=Copyright © 2026 HanzG
+VersionInfoCopyright=Copyright © 2026 Altisima
 VersionInfoOriginalFileName={#MyAppName}-{#MyAppVersion}-Setup.exe
 ; SignTool intentionally unset — UNSIGNED BY DESIGN (Authenticode not required).
 

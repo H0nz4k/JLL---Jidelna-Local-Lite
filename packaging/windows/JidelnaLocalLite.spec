@@ -31,12 +31,27 @@ hiddenimports: list[str] = [
     "keyring.backends.Windows",
 ]
 
-for package in ("flet", "flet_desktop", "flet_core"):
-    if importlib.util.find_spec(package) is not None:
-        pkg_datas, pkg_binaries, pkg_hidden = collect_all(package)
-        datas += pkg_datas
-        binaries += pkg_binaries
-        hiddenimports += pkg_hidden
+required_packages = ("flet", "flet_desktop")
+optional_packages = ("flet_core",)
+
+for package in required_packages:
+    if importlib.util.find_spec(package) is None:
+        raise SystemExit(
+            f"ERROR: required package {package!r} is not installed in the build env. "
+            "Install project deps including flet-desktop before PyInstaller."
+        )
+    pkg_datas, pkg_binaries, pkg_hidden = collect_all(package)
+    datas += pkg_datas
+    binaries += pkg_binaries
+    hiddenimports += pkg_hidden
+
+for package in optional_packages:
+    if importlib.util.find_spec(package) is None:
+        continue
+    pkg_datas, pkg_binaries, pkg_hidden = collect_all(package)
+    datas += pkg_datas
+    binaries += pkg_binaries
+    hiddenimports += pkg_hidden
 
 # Keep importlib.metadata version() working in the frozen EXE.
 datas += copy_metadata("jidelna-local-lite")

@@ -3,7 +3,7 @@
 **product_name:** JLL  
 **product_version:** 0.6.0  
 **file_version:** 0.6.0.0  
-**company_name:** HanzG  
+**company_name:** Altisima  
 **signature_status:** UNSIGNED  
 **signature_policy:** UNSIGNED_BY_DESIGN  
 **authenticode_required:** false  

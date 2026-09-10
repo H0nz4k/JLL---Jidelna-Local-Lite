@@ -22,11 +22,11 @@ VSVersionInfo(
         StringTable(
           '040904B0',
           [
-            StringStruct('CompanyName', 'HanzG'),
+            StringStruct('CompanyName', 'Altisima'),
             StringStruct('FileDescription', 'JLL \u2013 J\u00eddelna Lokal Lite'),
             StringStruct('FileVersion', '0.6.0.0'),
             StringStruct('InternalName', 'JidelnaLocalLite'),
-            StringStruct('LegalCopyright', 'Copyright \u00a9 2026 HanzG'),
+            StringStruct('LegalCopyright', 'Copyright \u00a9 2026 Altisima'),
             StringStruct('OriginalFilename', 'JidelnaLocalLite.exe'),
             StringStruct('ProductName', 'JLL'),
             StringStruct('ProductVersion', '0.6.0'),
